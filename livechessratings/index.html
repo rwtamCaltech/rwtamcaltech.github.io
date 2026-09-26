@@ -1,0 +1,1900 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2700chess Classical Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --page:           #f9f9f7;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+    --good:           #0ca30c;
+    --critical:       #d03b3b;
+    --flag-blue:      #2a78d6;
+    --flag-mixed:     #4a3aa7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --page:           #0d0d0d;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --good:           #0ca30c;
+      --critical:       #e66767;
+      --flag-blue:      #3987e5;
+      --flag-mixed:     #9085e9;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1:      #1a1a19;
+    --page:           #0d0d0d;
+    --text-primary:   #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted:     #898781;
+    --gridline:       #2c2c2a;
+    --baseline:       #383835;
+    --border:         rgba(255,255,255,0.10);
+    --series-1:       #3987e5;
+    --good:           #0ca30c;
+    --critical:       #e66767;
+    --flag-blue:      #3987e5;
+    --flag-mixed:     #9085e9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 20px 60px; }
+  header h1 { font-size: 22px; margin: 0 0 4px; }
+  header p { color: var(--text-secondary); margin: 0 0 4px; font-size: 13px; }
+  .note {
+    font-size: 12.5px; color: var(--text-muted); background: var(--surface-1);
+    border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px;
+    margin: 14px 0 20px; line-height: 1.5;
+  }
+  .stats { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+  .stat-tile {
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px; min-width: 120px;
+  }
+  .stat-tile .label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+  .stat-tile .value { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .controls {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    margin-bottom: 16px; padding: 12px; background: var(--surface-1);
+    border: 1px solid var(--border); border-radius: 10px;
+  }
+  .controls input[type="text"], .controls select {
+    background: var(--page); color: var(--text-primary); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 10px; font-size: 13px; font-family: inherit;
+  }
+  .controls label { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+  #nat-select { min-width: 220px; height: 30px; }
+  .controls .count { margin-left: auto; font-size: 12.5px; color: var(--text-muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; font-weight: 600; color: var(--text-secondary);
+    border-bottom: 1px solid var(--baseline); padding: 8px 10px; white-space: nowrap;
+    cursor: pointer; user-select: none; position: sticky; top: 0; background: var(--page);
+    z-index: 3;
+  }
+  thead th.num, td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  thead th .arrow { font-size: 10px; color: var(--text-muted); margin-left: 3px; }
+  tbody tr { border-bottom: 1px solid var(--gridline); }
+  tbody tr:hover { background: var(--surface-1); }
+  td { padding: 7px 10px; white-space: nowrap; }
+  td.name { font-weight: 500; }
+  /* Frozen columns (#, Player, Labels) stay put while the rest of the table
+     scrolls horizontally -- each freeze-N's left offset must match the
+     summed fixed widths of the freeze columns before it, so freeze-1 and
+     freeze-2 need explicit widths (not just freeze-3, since nothing needs
+     to sit precisely after it). */
+  .freeze-1, .freeze-2, .freeze-3 {
+    position: sticky; background: var(--page); z-index: 2;
+  }
+  tbody .freeze-1, tbody .freeze-2, tbody .freeze-3 { background: var(--surface-1); z-index: 1; }
+  thead .freeze-1, thead .freeze-2, thead .freeze-3 { z-index: 4; }
+  .freeze-1 { left: 0; width: 48px; min-width: 48px; }
+  .freeze-2 {
+    left: 48px; width: 210px; min-width: 210px; max-width: 210px;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .freeze-3 {
+    left: 258px; max-width: 280px; white-space: normal;
+    box-shadow: 2px 0 4px -2px rgba(0,0,0,0.25);
+  }
+  .label-badges { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 0; }
+  .label-badges .badge { white-space: nowrap; cursor: default; }
+  td.name .title { color: var(--text-muted); font-weight: 400; margin-right: 4px; }
+  td.name a { color: inherit; text-decoration: none; }
+  td.name a:hover { text-decoration: underline; }
+  td.name a.flag-red { color: var(--critical); font-weight: 600; }
+  td.name a.flag-blue { color: var(--flag-blue); font-weight: 600; }
+  td.name a.flag-both { color: var(--flag-mixed); font-weight: 600; }
+  .moves-high { color: var(--good); font-weight: 600; }
+  .moves-low { color: var(--critical); font-weight: 600; }
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 16px; align-items: center;
+    font-size: 12.5px; color: var(--text-secondary); margin: 2px 0 14px;
+  }
+  .legend .swatch-item { display: flex; align-items: center; gap: 6px; }
+  .legend .swatch { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 auto; }
+  .legend .swatch.red { background: var(--critical); }
+  .legend .swatch.blue { background: var(--flag-blue); }
+  .legend .swatch.both { background: var(--flag-mixed); }
+  .legend .swatch.square { border-radius: 2px; }
+  .legend .swatch.green { background: var(--good); }
+  .legend-label { font-weight: 600; color: var(--text-muted); }
+  .details-toggle { margin: 4px 0 14px; }
+  .details-toggle > summary {
+    cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-secondary);
+    padding: 6px 0; list-style: none; user-select: none;
+  }
+  .details-toggle > summary::-webkit-details-marker { display: none; }
+  .details-toggle > summary::before { content: '▸ '; color: var(--text-muted); }
+  .details-toggle[open] > summary::before { content: '▾ '; }
+  .details-toggle > summary:hover { color: var(--text-primary); }
+  .details-toggle .intro { font-size: 13px; color: var(--text-secondary); margin: 8px 0 12px; }
+  td.openings { white-space: normal; font-size: 12px; line-height: 1.5; min-width: 170px; }
+  .badge {
+    display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--text-muted);
+  }
+  .na { color: var(--text-muted); font-style: italic; }
+  .table-scroll {
+    overflow: auto; max-height: 70vh; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--surface-1);
+  }
+  footer { margin-top: 22px; font-size: 12px; color: var(--text-muted); }
+  footer a { color: inherit; }
+
+  .oe-select {
+    background: var(--page); color: var(--text-primary); border: 1px solid var(--border);
+    border-radius: 6px; height: 30px; padding: 0 8px; width: 100%; margin-top: 4px;
+  }
+  .oe-btn {
+    background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
+    border-radius: 6px; padding: 4px 10px; font-size: 13px; cursor: pointer;
+  }
+  .oe-btn:hover:not(:disabled) { background: var(--page); }
+  .oe-btn:disabled { opacity: .4; cursor: default; }
+  .chessboard {
+    display: grid; grid-template-columns: repeat(8, 34px); grid-template-rows: repeat(8, 34px);
+    border: 2px solid var(--border); width: max-content; user-select: none;
+  }
+  .cb-sq { display: flex; align-items: center; justify-content: center; font-size: 24px; line-height: 1; }
+  .cb-sq.light { background: #eeeed2; }
+  .cb-sq.dark { background: #6e9552; }
+  .cb-piece.white { color: #fbfbf9; text-shadow: 0 0 1px #000, 0 0 2px #000; }
+  .cb-piece.black { color: #14140f; }
+  .oe-moves {
+    font-size: 12.5px; color: var(--text-secondary); line-height: 1.7; margin-top: 8px;
+    max-width: 306px; word-wrap: break-word;
+  }
+  .oe-moves .oe-mv { cursor: pointer; padding: 0 2px; border-radius: 3px; }
+  .oe-moves .oe-mv:hover { background: var(--surface-1); }
+  .oe-moves .oe-mv.oe-current { background: var(--good); color: #fff; font-weight: 600; }
+  .oe-examples { font-size: 12.5px; color: var(--text-secondary); margin: 0 0 10px; }
+  .oe-examples div { margin: 2px 0; }
+  .oe-sw h4 {
+    font-size: 11.5px; margin: 10px 0 3px; color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  .oe-sw p { font-size: 13px; margin: 0 0 8px; color: var(--text-secondary); }
+
+  /* Nationality Breakdown table: single frozen column (Nationality), the
+     other 13 columns slide right under it. Column groups (all-tracked /
+     active / youth / ranks) are shown via a tinted header background rather
+     than a merged second header row, since a merged row would need its own
+     sticky top-offset math on top of the generic `thead th{top:0}` rule
+     already in place above -- the tint plus the blurb text above the table
+     communicates the same grouping with far less CSS. */
+  .nat-freeze-1 {
+    position: sticky; left: 0; z-index: 2; background: var(--page);
+    width: 190px; min-width: 190px; max-width: 190px;
+    overflow: hidden; text-overflow: ellipsis;
+    box-shadow: 2px 0 4px -2px rgba(0,0,0,0.25);
+  }
+  #nationality-tbl tbody .nat-freeze-1 { background: var(--surface-1); }
+  #nationality-tbl thead .nat-freeze-1 { z-index: 4; }
+  #nationality-tbl th.grp-all { background: rgba(42,120,214,0.10); }
+  #nationality-tbl th.grp-active { background: rgba(66,166,96,0.10); }
+  #nationality-tbl th.grp-youth { background: rgba(158,101,214,0.10); }
+  #nationality-tbl th.grp-rank { background: rgba(150,150,150,0.14); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>2700chess.com — Classical Rating Dashboard</h1>
+  </header>
+
+  <details class="details-toggle">
+    <summary>Show details (what's tracked, plus every column/coloring/label rule)</summary>
+    <p class="intro">Players currently rated over 2400 classical (FIDE standard), with 12‑month classical activity pulled from each player's own 2700chess.com profile page.</p>
+
+    <div class="legend">
+      <span class="swatch-item"><span class="swatch red"></span>Red name: Avg. Opp. ELO is 150+ points above or below Current ELO</span>
+      <span class="swatch-item"><span class="swatch blue"></span>Blue name: fewer than 30 classical games in the last 12 months</span>
+      <span class="swatch-item"><span class="swatch both"></span>Red+blue mix: both conditions apply</span>
+      <span class="swatch-item">Use the "Hide low-activity (blue/purple) players" toggle below to only see players active enough to clear the 30-game threshold.</span>
+    </div>
+    <div class="legend">
+      <span class="legend-label">Avg Moves column:</span>
+      <span class="swatch-item"><span class="swatch green square"></span>Green: 1+ std. dev. above the average game length across all tracked players (longer, grindier games)</span>
+      <span class="swatch-item"><span class="swatch red square"></span>Red: 1+ std. dev. below average (shorter games -- quick decisive results, or quick draws)</span>
+    </div>
+    <div class="legend">
+      <span class="legend-label">Win/Draw/Loss Rate columns:</span>
+      <span class="swatch-item"><span class="swatch green square"></span>Green: 1+ std. dev. above the mean rate of players in the same 100-pt Avg. Opp. ELO bracket (e.g. 2700-2800)</span>
+      <span class="swatch-item"><span class="swatch red square"></span>Red: 1+ std. dev. below that bracket's mean</span>
+      <span class="swatch-item">Compares players facing similarly-rated opposition, not the whole field -- a 2500-bracket player isn't judged against a 2800-bracket player's rate. Same green-above/red-below rule is applied literally to all three columns, so for Loss Rate "green" flags an unusually <em>high</em> loss rate for that bracket, not a good outcome.</span>
+    </div>
+    <div class="legend">
+      <span class="legend-label">Delta / 12m (site) columns:</span>
+      <span class="swatch-item">Published directly by 2700chess.com, not computed by us -- Delta is the live classical rating's change vs. the last official FIDE list; 12m (site) is the site's own trailing-12-month game count across all time controls (not classical-only, so it won't match Games (12mo, classical)).</span>
+    </div>
+    <div class="legend">
+      <span class="legend-label">Labels column:</span>
+      <span class="swatch-item">Plain-English tags derived entirely from the colorings already on this row -- nothing new is computed, this just names the combinations. A player can carry several at once. Hover a label for the exact rule. Use the "Labels" filter above to isolate players by tendency.</span>
+      <span class="swatch-item">Win/Draw/Loss Rate-derived: <strong>Hot streak</strong> (green Win Rate), <strong>Out of Shape</strong> (green Loss Rate) or <strong>Completely out of shape</strong> (red Win Rate + green Loss Rate), <strong>Stable Player</strong> (green Draw Rate), <strong>Very stable player/rarely goes for it</strong> (red Win Rate + green Draw Rate), <strong>Rarely draws/Goes for it</strong> (red Draw Rate), <strong>Rarely loses</strong> (red Loss Rate).</span>
+      <span class="swatch-item">Name-flag-derived: <strong>Low volume</strong> (blue name), <strong>Farming ELO</strong> (red name).</span>
+      <span class="swatch-item">Avg Moves-derived: <strong>Long Slogger</strong> (green), <strong>Fast Game</strong> (red).</span>
+      <span class="swatch-item">Opening-derived: <strong>Uses rare opening - white/black</strong> (one of that side's top-3 career openings is red in the "Most Common Openings" tables below); <strong>In book (white/black)</strong> (all 3 of that side's top openings are green); <strong>Risk Taker (white/black)</strong> (2+ of that side's top openings are non-green); <strong>Unorthodox</strong> (Risk Taker on both sides).</span>
+      <span class="swatch-item"><strong>&lt;Opening Name&gt; Player, White/Black</strong>: the SAME opening name appears 2+ times in that side's top-3 career openings (different ECO codes/variations sharing one name, e.g. two different Nimzo-Indian Defense lines both cracking a player's top 3) -- a stronger single-opening preference signal than any one top-3 entry alone. Data-driven, so the exact label text depends on the opening; use the Labels filter dropdown to see which ones occurred.</span>
+      <span class="swatch-item"><strong>Workhorse</strong>: Games (12mo, classical) is 1+ std. dev. above the mean across all tracked players (whole field, not bracketed).</span>
+      <span class="swatch-item"><strong>Seen better days</strong>: current classical rating is 100+ points below this player's best-ever classical rating (hover the label for the peak value and month/year).</span>
+      <span class="swatch-item">Format-comparison labels (classical vs. rapid vs. blitz world rank -- a LOWER rank number is better; "N spots better" means rank_a &lt;= rank_b - N): <strong>Elite in all time formats</strong> (top 20 world rank in all three); <strong>Prefers longer time formats</strong> (classical rank 25+ spots better than BOTH rapid and blitz); <strong>Prefer rapid</strong> (rapid rank 25+ spots better than BOTH classical and blitz); <strong>Blitzer</strong> (blitz rank 25+ spots better than BOTH classical and rapid, OR -- if not already Elite -- simply top 20 in blitz on its own, OR Blitz ELO is strictly the highest of Current/Rapid/Blitz ELO); <strong>Prefer faster time formats</strong> (BOTH rapid and blitz rank 25+ spots better than classical, regardless of which of the two is better -- can co-occur with Prefer rapid or Blitzer).</span>
+      <span class="swatch-item"><strong>Elite in all time formats - Women</strong>: same top-20-in-all-three rule, but 2700chess itself silently scopes "world rank" to the women's pool (not the open pool) for female players -- no field on the site discloses this, it was confirmed by inspection (e.g. Hou Yifan shows world rank 1/1/1 in classical/rapid/blitz, true only within the women's pool). Kept as a separate label rather than lumped into the open-pool one so the two aren't conflated. Sex comes from FIDE's own public rating list, not from 2700chess.</span>
+      <span class="swatch-item"><strong>Good Rapid (Recency)</strong> / <strong>Good Blitz (Recency)</strong>: that time control's rating gained more than 10 points from the first to the last point in the trailing-12-month chart (see Rapid Δ / Blitz Δ columns).</span>
+      <span class="swatch-item"><strong>Out of shape for faster time formats (recency)</strong>: BOTH Rapid Δ (12mo) and Blitz Δ (12mo) are below -15 points.</span>
+      <span class="swatch-item"><strong>Rapid workhorse (recency)</strong> / <strong>Blitz workhorse (recency)</strong>: Rapid/Blitz Games (12mo) is 1+ std. dev. above the mean across all tracked players; <strong>Few rapid (recency)</strong> / <strong>Few blitz (recency)</strong>: 1+ std. dev. below the mean (same whole-field convention as Workhorse).</span>
+      <span class="swatch-item"><strong>Good Classical Growth Past Year</strong> / <strong>Great Classical Growth Past Year</strong> / <strong>Regression Classical Growth Past Year</strong>: based on the ELO Progression (12mo) column (classical rating, first point to last point in that chart) -- Good fires above +35, Great replaces Good above +50 (mutually exclusive, never both at once), Regression fires below -35.</span>
+    </div>
+    <div class="legend">
+      <span class="legend-label">Rapid Games (12mo) / Blitz Games (12mo) columns:</span>
+      <span class="swatch-item"><span class="swatch green square"></span>Green: 1+ std. dev. above the mean across all tracked players (backs the Rapid/Blitz workhorse (recency) labels)</span>
+      <span class="swatch-item"><span class="swatch red square"></span>Red: 1+ std. dev. below the mean (backs the Few rapid/blitz (recency) labels)</span>
+      <span class="swatch-item">Hover a colored value for its exact z-score.</span>
+    </div>
+    <div class="legend">
+      <span class="legend-label">Women only toggle:</span>
+      <span class="swatch-item">Filters the table to players whose sex is 'F' per FIDE's own public rating list (2700chess.com's player pages don't publish a gender field) -- see the "Elite in all time formats - Women" entry above for why this matters.</span>
+    </div>
+  </details>
+
+  <div class="note" id="meta-note">Loading…</div>
+
+  <div class="stats" id="stat-tiles"></div>
+
+  <div class="controls">
+    <label>Search
+      <input type="text" id="search" placeholder="Player name…">
+    </label>
+    <label>Nationality
+      <select id="nat-select" multiple size="1"></select>
+    </label>
+    <label>Labels
+      <select id="label-select" multiple size="1"></select>
+    </label>
+    <label><input type="checkbox" id="active-only"> Only players with games in the window</label>
+    <label><input type="checkbox" id="hide-low-activity"> Hide low-activity (blue/purple) players</label>
+    <label><input type="checkbox" id="women-only"> Women only</label>
+    <span class="count" id="row-count"></span>
+  </div>
+
+  <div class="table-scroll">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th data-key="rank" class="num freeze-1">#</th>
+          <th data-key="name" class="freeze-2">Player</th>
+          <th data-key="labels" class="freeze-3">Labels</th>
+          <th data-key="nationality">Nationality</th>
+          <th data-key="age" class="num">Age</th>
+          <th data-key="current_elo" class="num">Current ELO</th>
+          <th data-key="classical_world_rank" class="num" title="2700chess.com's own published world rank for classical">Classical Rank</th>
+          <th data-key="rating_delta" class="num" title="2700chess.com's own live classical rating change vs. the last official FIDE list">Delta</th>
+          <th data-key="rapid_elo" class="num" title="2700chess.com's own published live rapid rating, from the same page fetch as classical">Rapid ELO</th>
+          <th data-key="rapid_world_rank" class="num" title="2700chess.com's own published world rank for rapid">Rapid Rank</th>
+          <th data-key="blitz_elo" class="num" title="2700chess.com's own published live blitz rating, from the same page fetch as classical">Blitz ELO</th>
+          <th data-key="blitz_world_rank" class="num" title="2700chess.com's own published world rank for blitz">Blitz Rank</th>
+          <th data-key="rapid_progression_delta" class="num" title="Rapid rating change, first to last point in the trailing-12-month chart">Rapid Δ (12mo)</th>
+          <th data-key="blitz_progression_delta" class="num" title="Blitz rating change, first to last point in the trailing-12-month chart">Blitz Δ (12mo)</th>
+          <th data-key="rapid_games_12mo" class="num" title="Count of rapid-format games in the player's own trailing-12-month games list">Rapid Games (12mo)</th>
+          <th data-key="blitz_games_12mo" class="num" title="Count of blitz-format games in the player's own trailing-12-month games list">Blitz Games (12mo)</th>
+          <th data-key="games_12mo" class="num">Games (12mo, classical)</th>
+          <th data-key="games_12mo_site" class="num" title="2700chess.com's own published trailing-12-month game count, across ALL time controls (classical+rapid+blitz) -- not directly comparable to Games (12mo, classical)">12m (site)</th>
+          <th data-key="avg_opponent_elo" class="num">Avg Opp. ELO</th>
+          <th data-key="avg_moves" class="num">Avg Moves</th>
+          <th data-key="win_rate" class="num">Win Rate</th>
+          <th data-key="draw_rate" class="num">Draw Rate</th>
+          <th data-key="loss_rate" class="num">Loss Rate</th>
+          <th data-key="average_play" class="num" title="avg_opp_elo x (3/4 + 1/4 x win_rate) -- opponent strength weighted 3x as heavily as win rate">Avg Play</th>
+          <th data-key="progression">ELO Progression (12mo)</th>
+          <th data-key="accuracy" class="num">Accuracy</th>
+          <th data-key="openings_white">Top Openings (White, career)</th>
+          <th data-key="openings_black">Top Openings (Black, career)</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <header style="margin-top:36px">
+    <h1 style="font-size:18px">Most Common Openings Among Tracked Players</h1>
+    <p>Built entirely from data already on this page -- see the note below.</p>
+  </header>
+  <div class="note" id="openings-agg-note">Loading…</div>
+  <div style="display:flex; gap:20px; flex-wrap:wrap;">
+    <div style="flex:1; min-width:320px;">
+      <h3 style="font-size:14px; margin:0 0 8px;">As White</h3>
+      <div class="table-scroll" style="max-height:50vh">
+        <table id="openings-white-tbl">
+          <thead>
+            <tr>
+              <th class="num">#</th>
+              <th>ECO</th>
+              <th>Opening</th>
+              <th class="num">Players</th>
+            </tr>
+          </thead>
+          <tbody id="openings-white-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div style="flex:1; min-width:320px;">
+      <h3 style="font-size:14px; margin:0 0 8px;">As Black</h3>
+      <div class="table-scroll" style="max-height:50vh">
+        <table id="openings-black-tbl">
+          <thead>
+            <tr>
+              <th class="num">#</th>
+              <th>ECO</th>
+              <th>Opening</th>
+              <th class="num">Players</th>
+            </tr>
+          </thead>
+          <tbody id="openings-black-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <header style="margin-top:36px">
+    <h1 style="font-size:18px">Opening Explorer</h1>
+    <p>Pick one of the top 20 openings above (by tracked-player count) to see example grandmasters who play it, an animated move-by-move diagram, and a strengths/weaknesses summary.</p>
+  </header>
+  <div class="note" id="opening-explorer-note">Loading…</div>
+  <div style="display:flex; gap:20px; flex-wrap:wrap; margin-bottom:16px;">
+    <label style="flex:1; min-width:240px; font-size:12px; color:var(--text-secondary);">Top 20 as White
+      <select id="opening-select-white" class="oe-select"><option value="">-- choose an opening --</option></select>
+    </label>
+    <label style="flex:1; min-width:240px; font-size:12px; color:var(--text-secondary);">Top 20 as Black
+      <select id="opening-select-black" class="oe-select"><option value="">-- choose an opening --</option></select>
+    </label>
+  </div>
+  <div id="opening-explorer-body" style="display:none; padding:14px; background:var(--surface-1); border:1px solid var(--border); border-radius:10px; margin-bottom:16px;">
+    <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+      <div style="flex:0 0 auto;">
+        <div id="opening-board" class="chessboard"></div>
+        <div style="display:flex; gap:6px; align-items:center; margin-top:10px; flex-wrap:wrap;">
+          <button type="button" id="oe-reset" class="oe-btn" title="Back to start">⟲</button>
+          <button type="button" id="oe-prev" class="oe-btn" title="Previous move">◀</button>
+          <button type="button" id="oe-play" class="oe-btn" title="Play/pause">▶ Play</button>
+          <button type="button" id="oe-next" class="oe-btn" title="Next move">▶</button>
+          <span id="oe-ply-label" style="font-size:12px; color:var(--text-muted); margin-left:2px;"></span>
+        </div>
+        <div id="oe-moves" class="oe-moves"></div>
+      </div>
+      <div style="flex:1; min-width:280px;">
+        <h3 id="oe-title" style="margin:0 0 2px; font-size:15px;"></h3>
+        <div id="oe-eco" style="font-size:12px; color:var(--text-muted); margin-bottom:8px;"></div>
+        <div class="oe-examples">
+          <strong style="color:var(--text-primary);">Top grandmasters who play this (top-3 career repertoire):</strong>
+          <div id="oe-examples-white"></div>
+          <div id="oe-examples-black"></div>
+        </div>
+        <div class="oe-sw" id="oe-strengths-weaknesses"></div>
+      </div>
+    </div>
+  </div>
+
+  <header style="margin-top:36px">
+    <h1 style="font-size:18px">Tournament Sites (past 12 months)</h1>
+    <p>Distinct tournament "site" values from every tracked player's games in the trailing 12-month window, across all time controls -- see the note below.</p>
+  </header>
+  <div class="note" id="sites-note">Loading…</div>
+  <div id="sites-map" style="height:420px; border:1px solid var(--border); border-radius:10px; margin-bottom:14px; background:var(--surface-1);"></div>
+  <div class="table-scroll" style="max-height:50vh">
+    <table id="sites-tbl">
+      <thead>
+        <tr>
+          <th data-key="site">Site</th>
+          <th data-key="coords">Coordinates</th>
+          <th data-key="ranges">Date Range(s) (unique, this window)</th>
+        </tr>
+      </thead>
+      <tbody id="sites-tbody"></tbody>
+    </table>
+  </div>
+
+  <header style="margin-top:36px">
+    <h1 style="font-size:18px">Nationality Breakdown</h1>
+    <p id="nationality-blurb">Loading…</p>
+  </header>
+  <div class="note" id="nationality-note"></div>
+  <div class="table-scroll" style="max-height:55vh">
+    <table id="nationality-tbl">
+      <thead>
+        <tr>
+          <th data-key="nationality" class="nat-freeze-1">Nationality</th>
+          <th data-key="allCount" class="num grp-all" title="Count of tracked players of this nationality with games in the trailing 12-month window ('Only players with games in the window')">#&nbsp;GMs (tracked)</th>
+          <th data-key="allAvgElo" class="num grp-all" title="Average Current ELO of the players counted in the previous column">Avg ELO</th>
+          <th data-key="avgAge" class="num grp-all" title="Average age (std. dev. in parentheses) of the players counted in the '# GMs (tracked)' column -- sorts by the average, ignoring the parenthetical std. dev.">Avg Age (σ)</th>
+          <th data-key="allComposite" class="num grp-all" title="# GMs (tracked) × Avg ELO, rounded to 1 decimal">CompositeScore</th>
+          <th data-key="activeCount" class="num grp-active" title="Narrower than '# GMs (tracked)': also excludes low-activity (blue/purple) players, i.e. games_12mo >= 30 -- same population the 'Hide low-activity' toggle isolates above">#&nbsp;Active GMs</th>
+          <th data-key="activeAvgElo" class="num grp-active" title="Average Current ELO of the players counted in the previous column">Avg ELO (Active)</th>
+          <th data-key="activeComposite" class="num grp-active" title="# Active GMs × Avg ELO (Active), rounded to 1 decimal">CompositeScore (Active)</th>
+          <th data-key="youthCount" class="num grp-youth" title="Count of ALL tracked players of this nationality (regardless of activity) under age 25">#&nbsp;Youth GMs (&lt;25)</th>
+          <th data-key="youthAvgElo" class="num grp-youth" title="Average Current ELO of the players counted in the previous column">Avg ELO (Youth)</th>
+          <th data-key="youthComposite" class="num grp-youth" title="# Youth GMs × Avg ELO (Youth), rounded to 1 decimal">CompositeScore (Youth)</th>
+          <th data-key="allRank" class="num grp-rank" title="Nationality's rank by CompositeScore, highest first (hover a value in this column for example players)">Rank — All</th>
+          <th data-key="activeRank" class="num grp-rank" title="Nationality's rank by CompositeScore (Active), highest first (hover a value in this column for example players)">Rank — Active</th>
+          <th data-key="youthRank" class="num grp-rank" title="Nationality's rank by CompositeScore (Youth), highest first (hover a value in this column for example players)">Rank — Youth</th>
+        </tr>
+      </thead>
+      <tbody id="nationality-tbody"></tbody>
+    </table>
+  </div>
+
+  <footer>
+    Source: <a href="https://2700chess.com/" target="_blank" rel="noopener">2700chess.com</a> player
+    pages (FIDE standard/classical rating list used only to discover which players to look up).
+    Accuracy is not shown because 2700chess.com does not publish move-quality/engine-eval data anywhere.
+    Top openings (per-player columns above, and the two tables below) are career-wide totals across
+    all time controls (2700chess.com doesn't expose a per-game opening field to cut this to the
+    12-month classical window) -- see the note above the White/Black tables for exactly what's counted.
+    Tournament site coordinates: map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors, geocoded via Nominatim.
+  </footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.12.1/chess.min.js"></script>
+<script>
+const SERIES_COLOR = getComputedStyle(document.documentElement).getPropertyValue('--series-1').trim() || '#2a78d6';
+let ALL = [];
+let sortKey = 'current_elo';
+let sortDir = -1;
+let MOVES_MEAN = null;
+let MOVES_STDEV = null;
+// fieldKey ('win_rate'|'draw_rate'|'loss_rate') -> {100pt avg-opp-elo bracket floor -> {mean, stdev, n}}
+let RATE_BRACKETS = {};
+const RATE_LABELS = { win_rate: 'win rate', draw_rate: 'draw rate', loss_rate: 'loss rate' };
+
+function eloBracket(avgOppElo) {
+  return Math.floor(avgOppElo / 100) * 100;
+}
+
+function computeRateBrackets(players, fieldKey) {
+  const byBracket = {};
+  players.forEach(p => {
+    if (p.avg_opponent_elo === null || p[fieldKey] === null || p[fieldKey] === undefined) return;
+    const b = eloBracket(p.avg_opponent_elo);
+    (byBracket[b] = byBracket[b] || []).push(p[fieldKey]);
+  });
+  const brackets = {};
+  Object.entries(byBracket).forEach(([b, vals]) => {
+    if (vals.length < 2) { brackets[b] = { mean: null, stdev: null, n: vals.length }; return; }
+    const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+    const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (vals.length - 1);
+    brackets[b] = { mean, stdev: Math.sqrt(variance), n: vals.length };
+  });
+  RATE_BRACKETS[fieldKey] = brackets;
+}
+
+// Bracket-relative coloring shared by Win/Draw/Loss Rate: green = 1+ std.
+// dev. ABOVE the bracket mean, red = 1+ std. dev. below -- same rule applied
+// to all three fields, so for Loss Rate "green" means an unusually HIGH loss
+// rate for that bracket, not "good"; see the on-page legend and README.
+function rateClass(r, fieldKey) {
+  const val = r[fieldKey];
+  if (r.avg_opponent_elo === null || val === null || val === undefined) return '';
+  const stats = (RATE_BRACKETS[fieldKey] || {})[eloBracket(r.avg_opponent_elo)];
+  if (!stats || stats.stdev === null) return '';
+  if (val >= stats.mean + stats.stdev) return 'moves-high';
+  if (val <= stats.mean - stats.stdev) return 'moves-low';
+  return '';
+}
+
+function rateTitle(r, fieldKey) {
+  const val = r[fieldKey];
+  if (r.avg_opponent_elo === null || val === null || val === undefined) return '';
+  const b = eloBracket(r.avg_opponent_elo);
+  const stats = (RATE_BRACKETS[fieldKey] || {})[b];
+  if (!stats || stats.stdev === null) return '';
+  const cls = rateClass(r, fieldKey);
+  if (!cls) return '';
+  const z = ((val - stats.mean) / stats.stdev).toFixed(2);
+  const dir = cls === 'moves-high' ? 'above' : 'below';
+  return `${Math.abs(z)} std. dev. ${dir} the ${b}-${b + 100} avg-opp-ELO bracket's mean ${RATE_LABELS[fieldKey]} `
+       + `(${stats.mean.toFixed(1)}% over ${stats.n} players)`;
+}
+
+function deltaClass(r) {
+  if (r.rating_delta === null || r.rating_delta === undefined) return '';
+  if (r.rating_delta > 0) return 'moves-high';
+  if (r.rating_delta < 0) return 'moves-low';
+  return '';
+}
+
+function signedClass(v) {
+  if (v === null || v === undefined) return '';
+  if (v > 0) return 'moves-high';
+  if (v < 0) return 'moves-low';
+  return '';
+}
+
+function signedFmt(v) {
+  if (v === null || v === undefined) return '<span class="na">N/A</span>';
+  return (v > 0 ? '+' : '') + fmt(v, 1);
+}
+
+function fmt(v, digits) {
+  if (v === null || v === undefined) return '<span class="na">N/A</span>';
+  return digits !== undefined ? Number(v).toFixed(digits) : v;
+}
+
+function computeMovesStats(players) {
+  const vals = players.map(p => p.avg_moves).filter(v => v !== null && v !== undefined);
+  if (vals.length < 2) { MOVES_MEAN = null; MOVES_STDEV = null; return; }
+  const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+  const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (vals.length - 1);
+  MOVES_MEAN = mean;
+  MOVES_STDEV = Math.sqrt(variance);
+}
+
+// Whole-field (not bracketed) mean/stdev of Games (12mo, classical) -- backs
+// the "Workhorse" label. Includes inactive players (games_12mo=0) since the
+// request was "one stdev above the rest of the players", the whole tracked
+// field, not just active ones.
+let GAMES_MEAN = null;
+let GAMES_STDEV = null;
+
+function computeGamesStats(players) {
+  const vals = players.map(p => p.games_12mo ?? 0);
+  if (vals.length < 2) { GAMES_MEAN = null; GAMES_STDEV = null; return; }
+  const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+  const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (vals.length - 1);
+  GAMES_MEAN = mean;
+  GAMES_STDEV = Math.sqrt(variance);
+}
+
+// Same whole-field convention as GAMES_MEAN/STDEV above, but for Rapid/Blitz
+// Games (12mo) -- backs the Rapid/Blitz workhorse(recency)/Few labels. Also
+// includes inactive players (0 games) in the population for the same reason.
+let RAPID_GAMES_MEAN = null;
+let RAPID_GAMES_STDEV = null;
+let BLITZ_GAMES_MEAN = null;
+let BLITZ_GAMES_STDEV = null;
+
+function computeRapidBlitzGamesStats(players) {
+  const rapidVals = players.map(p => p.rapid_games_12mo ?? 0);
+  if (rapidVals.length >= 2) {
+    const mean = rapidVals.reduce((s, v) => s + v, 0) / rapidVals.length;
+    const variance = rapidVals.reduce((s, v) => s + (v - mean) ** 2, 0) / (rapidVals.length - 1);
+    RAPID_GAMES_MEAN = mean;
+    RAPID_GAMES_STDEV = Math.sqrt(variance);
+  }
+  const blitzVals = players.map(p => p.blitz_games_12mo ?? 0);
+  if (blitzVals.length >= 2) {
+    const mean = blitzVals.reduce((s, v) => s + v, 0) / blitzVals.length;
+    const variance = blitzVals.reduce((s, v) => s + (v - mean) ** 2, 0) / (blitzVals.length - 1);
+    BLITZ_GAMES_MEAN = mean;
+    BLITZ_GAMES_STDEV = Math.sqrt(variance);
+  }
+}
+
+function movesClass(r) {
+  if (r.avg_moves === null || r.avg_moves === undefined || MOVES_MEAN === null || !MOVES_STDEV) return '';
+  if (r.avg_moves >= MOVES_MEAN + MOVES_STDEV) return 'moves-high';
+  if (r.avg_moves <= MOVES_MEAN - MOVES_STDEV) return 'moves-low';
+  return '';
+}
+
+function movesTitle(r) {
+  if (!MOVES_STDEV) return '';
+  const cls = movesClass(r);
+  if (!cls) return '';
+  const z = ((r.avg_moves - MOVES_MEAN) / MOVES_STDEV).toFixed(2);
+  const dir = cls === 'moves-high' ? 'above' : 'below';
+  return `${Math.abs(z)} std. dev. ${dir} the tracked-player average of ${MOVES_MEAN.toFixed(1)} moves`;
+}
+
+// Same green(1+ stdev above)/red(1+ stdev below) whole-field convention as
+// movesClass/movesTitle above, applied to Rapid/Blitz Games (12mo) -- these
+// are exactly the Rapid/Blitz workhorse(recency)/Few (recency) label rules,
+// just shown as column coloring too, not just a badge.
+function rapidGamesClass(r) {
+  if (RAPID_GAMES_MEAN === null || !RAPID_GAMES_STDEV) return '';
+  const v = r.rapid_games_12mo ?? 0;
+  if (v >= RAPID_GAMES_MEAN + RAPID_GAMES_STDEV) return 'moves-high';
+  if (v <= RAPID_GAMES_MEAN - RAPID_GAMES_STDEV) return 'moves-low';
+  return '';
+}
+
+function rapidGamesTitle(r) {
+  if (!RAPID_GAMES_STDEV) return '';
+  const cls = rapidGamesClass(r);
+  if (!cls) return '';
+  const v = r.rapid_games_12mo ?? 0;
+  const z = ((v - RAPID_GAMES_MEAN) / RAPID_GAMES_STDEV).toFixed(2);
+  const dir = cls === 'moves-high' ? 'above' : 'below';
+  return `${Math.abs(z)} std. dev. ${dir} the tracked-player average of ${RAPID_GAMES_MEAN.toFixed(1)} rapid games (12mo)`;
+}
+
+function blitzGamesClass(r) {
+  if (BLITZ_GAMES_MEAN === null || !BLITZ_GAMES_STDEV) return '';
+  const v = r.blitz_games_12mo ?? 0;
+  if (v >= BLITZ_GAMES_MEAN + BLITZ_GAMES_STDEV) return 'moves-high';
+  if (v <= BLITZ_GAMES_MEAN - BLITZ_GAMES_STDEV) return 'moves-low';
+  return '';
+}
+
+function blitzGamesTitle(r) {
+  if (!BLITZ_GAMES_STDEV) return '';
+  const cls = blitzGamesClass(r);
+  if (!cls) return '';
+  const v = r.blitz_games_12mo ?? 0;
+  const z = ((v - BLITZ_GAMES_MEAN) / BLITZ_GAMES_STDEV).toFixed(2);
+  const dir = cls === 'moves-high' ? 'above' : 'below';
+  return `${Math.abs(z)} std. dev. ${dir} the tracked-player average of ${BLITZ_GAMES_MEAN.toFixed(1)} blitz games (12mo)`;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+const ELO_GAP_THRESHOLD = 150;
+const LOW_GAMES_THRESHOLD = 30;
+const SEEN_BETTER_DAYS_THRESHOLD = 100;
+// Rank comparisons are inverted vs. ELO -- a LOWER rank number is better, so
+// "at least N spots better" means rank_a <= rank_b - N, not >=.
+const FORMAT_RANK_GAP_THRESHOLD = 25;
+const ELITE_RANK_THRESHOLD = 20;
+
+function isSeenBetterDaysFlagged(r) {
+  return r.best_classical_elo !== null && r.best_classical_elo !== undefined
+    && r.current_elo !== null && r.current_elo !== undefined
+    && (r.best_classical_elo - r.current_elo) >= SEEN_BETTER_DAYS_THRESHOLD;
+}
+
+function seenBetterDaysTitle(r) {
+  if (!isSeenBetterDaysFlagged(r)) return '';
+  const gap = Math.round(r.best_classical_elo - r.current_elo);
+  const when = r.best_classical_date
+    ? new Date(r.best_classical_date + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' })
+    : 'unknown date';
+  return `Peaked at ${Math.round(r.best_classical_elo)} classical (${when}) -- ${gap} pts above current ${Math.round(r.current_elo)}`;
+}
+
+// rank_a is "at least N spots better" than rank_b when rank_a <= rank_b - N
+// (a lower rank number is a better rank; null ranks never qualify).
+function rankBetterBy(rankA, rankB, n) {
+  if (rankA === null || rankA === undefined || rankB === null || rankB === undefined) return false;
+  return rankA <= rankB - n;
+}
+
+// ELO comparison (unlike rank, higher is better here) -- true only when all
+// three ratings are known and Blitz ELO strictly exceeds BOTH Current
+// (classical) ELO and Rapid ELO.
+function isBlitzEloHighest(r) {
+  const c = r.current_elo, ra = r.rapid_elo, bl = r.blitz_elo;
+  if (c === null || c === undefined || ra === null || ra === undefined || bl === null || bl === undefined) return false;
+  return bl > c && bl > ra;
+}
+
+const RECENCY_GAIN_THRESHOLD = 10;
+const RECENCY_DECLINE_THRESHOLD = -15;
+
+// Classical ELO Progression (12mo) growth/regression thresholds -- applied to
+// classical_progression_delta (first to last point of r.elo_progression,
+// same first-vs-last convention as the sparkline's own displayed delta and
+// as rapid/blitz progression deltas above).
+const CLASSICAL_GROWTH_GOOD_THRESHOLD = 35;
+const CLASSICAL_GROWTH_GREAT_THRESHOLD = 50;
+const CLASSICAL_REGRESSION_THRESHOLD = -35;
+
+function isOutOfShapeRecencyFlagged(r) {
+  return r.rapid_progression_delta !== null && r.rapid_progression_delta !== undefined
+    && r.blitz_progression_delta !== null && r.blitz_progression_delta !== undefined
+    && r.rapid_progression_delta < RECENCY_DECLINE_THRESHOLD
+    && r.blitz_progression_delta < RECENCY_DECLINE_THRESHOLD;
+}
+
+// 2700chess itself silently scopes "world rank" to the women's pool for
+// female players rather than the open pool (no field discloses this --
+// confirmed by inspection: e.g. Hou Yifan shows world rank 1/1/1 across
+// classical/rapid/blitz, which is only true within the women's pool). So a
+// top-20 "world rank" means different things depending on r.sex, and
+// lumping them into one "Elite in all time formats" label would conflate
+// two different reference pools -- hence the split label text.
+function formatLabels(r) {
+  const labels = [];
+  const c = r.classical_world_rank, ra = r.rapid_world_rank, bl = r.blitz_world_rank;
+  const isWoman = r.sex === 'F';
+  const elite = c !== null && c !== undefined && c <= ELITE_RANK_THRESHOLD
+    && ra !== null && ra !== undefined && ra <= ELITE_RANK_THRESHOLD
+    && bl !== null && bl !== undefined && bl <= ELITE_RANK_THRESHOLD;
+  if (elite) {
+    labels.push(isWoman ? 'Elite in all time formats - Women' : 'Elite in all time formats');
+  }
+  if (rankBetterBy(c, ra, FORMAT_RANK_GAP_THRESHOLD) && rankBetterBy(c, bl, FORMAT_RANK_GAP_THRESHOLD)) {
+    labels.push('Prefers longer time formats');
+  }
+  if (rankBetterBy(ra, c, FORMAT_RANK_GAP_THRESHOLD) && rankBetterBy(ra, bl, FORMAT_RANK_GAP_THRESHOLD)) {
+    labels.push('Prefer rapid');
+  }
+  // Blitzer fires on any of three independent conditions: the existing
+  // "beats both other formats by 25+" rank-gap rule; (only when the player
+  // didn't already qualify as Elite) simply being top-20 in blitz world
+  // rank on its own; or Blitz ELO being strictly the highest of the three
+  // ELO figures. Guarded so it's only pushed once even if multiple
+  // conditions match.
+  const blitzerByRank = rankBetterBy(bl, c, FORMAT_RANK_GAP_THRESHOLD) && rankBetterBy(bl, ra, FORMAT_RANK_GAP_THRESHOLD);
+  const blitzerByEliteBlitz = !elite && bl !== null && bl !== undefined && bl <= ELITE_RANK_THRESHOLD;
+  const blitzerByElo = isBlitzEloHighest(r);
+  if (blitzerByRank || blitzerByEliteBlitz || blitzerByElo) {
+    labels.push('Blitzer');
+  }
+  if (rankBetterBy(ra, c, FORMAT_RANK_GAP_THRESHOLD) && rankBetterBy(bl, c, FORMAT_RANK_GAP_THRESHOLD)) {
+    labels.push('Prefer faster time formats');
+  }
+  if (r.rapid_progression_delta !== null && r.rapid_progression_delta !== undefined
+    && r.rapid_progression_delta > RECENCY_GAIN_THRESHOLD) {
+    labels.push('Good Rapid (Recency)');
+  }
+  if (r.blitz_progression_delta !== null && r.blitz_progression_delta !== undefined
+    && r.blitz_progression_delta > RECENCY_GAIN_THRESHOLD) {
+    labels.push('Good Blitz (Recency)');
+  }
+  if (isOutOfShapeRecencyFlagged(r)) {
+    labels.push('Out of shape for faster time formats (recency)');
+  }
+  if (r.classical_progression_delta !== null && r.classical_progression_delta !== undefined) {
+    if (r.classical_progression_delta > CLASSICAL_GROWTH_GREAT_THRESHOLD) {
+      labels.push('Great Classical Growth Past Year');
+    } else if (r.classical_progression_delta > CLASSICAL_GROWTH_GOOD_THRESHOLD) {
+      labels.push('Good Classical Growth Past Year');
+    } else if (r.classical_progression_delta < CLASSICAL_REGRESSION_THRESHOLD) {
+      labels.push('Regression Classical Growth Past Year');
+    }
+  }
+  return labels;
+}
+
+function eloGap(r) {
+  if (r.avg_opponent_elo === null || r.current_elo === null) return null;
+  return r.avg_opponent_elo - r.current_elo;
+}
+
+function isEloGapFlagged(r) {
+  const gap = eloGap(r);
+  return gap !== null && Math.abs(gap) >= ELO_GAP_THRESHOLD;
+}
+
+function isLowGamesFlagged(r) {
+  return (r.games_12mo ?? 0) < LOW_GAMES_THRESHOLD;
+}
+
+function nameFlagClass(r) {
+  const red = isEloGapFlagged(r), blue = isLowGamesFlagged(r);
+  if (red && blue) return 'flag-both';
+  if (red) return 'flag-red';
+  if (blue) return 'flag-blue';
+  return '';
+}
+
+function nameFlagTitle(r) {
+  const parts = [];
+  const gap = eloGap(r);
+  if (isEloGapFlagged(r)) {
+    const dir = gap > 0 ? 'above' : 'below';
+    parts.push(`Avg opponent ELO is ${Math.abs(Math.round(gap))} pts ${dir} current ELO (>= ${ELO_GAP_THRESHOLD} threshold)`);
+  }
+  if (isLowGamesFlagged(r)) {
+    parts.push(`Only ${r.games_12mo ?? 0} classical games in the last 12mo (< ${LOW_GAMES_THRESHOLD})`);
+  }
+  return parts.join(' | ');
+}
+
+const ALL_LABELS = [
+  'Completely out of shape', 'Out of Shape', 'Hot streak',
+  'Very stable player/rarely goes for it', 'Rarely draws/Goes for it',
+  'Stable Player', 'Rarely loses', 'Low volume', 'Farming ELO',
+  'Long Slogger', 'Fast Game',
+  'Uses rare opening - white', 'Uses rare opening - black',
+  'In book (white)', 'In book (black)', 'Risk Taker (white)', 'Risk Taker (black)',
+  'Unorthodox', 'Workhorse',
+  'Seen better days', 'Elite in all time formats', 'Elite in all time formats - Women',
+  'Prefers longer time formats', 'Prefer rapid', 'Blitzer', 'Prefer faster time formats',
+  'Good Rapid (Recency)', 'Good Blitz (Recency)',
+  'Out of shape for faster time formats (recency)',
+  'Rapid workhorse (recency)', 'Blitz workhorse (recency)',
+  'Few rapid (recency)', 'Few blitz (recency)',
+  'Good Classical Growth Past Year', 'Great Classical Growth Past Year',
+  'Regression Classical Growth Past Year',
+];
+
+const LABEL_DESCRIPTIONS = {
+  'Completely out of shape': 'Win Rate red AND Loss Rate green, both vs. this player\'s Avg. Opp. ELO bracket',
+  'Out of Shape': 'Loss Rate green vs. this player\'s Avg. Opp. ELO bracket',
+  'Hot streak': 'Win Rate green vs. this player\'s Avg. Opp. ELO bracket',
+  'Very stable player/rarely goes for it': 'Win Rate red AND Draw Rate green, both vs. this player\'s Avg. Opp. ELO bracket',
+  'Rarely draws/Goes for it': 'Draw Rate red vs. this player\'s Avg. Opp. ELO bracket',
+  'Stable Player': 'Draw Rate green vs. this player\'s Avg. Opp. ELO bracket',
+  'Rarely loses': 'Loss Rate red vs. this player\'s Avg. Opp. ELO bracket',
+  'Low volume': `Blue name flag: fewer than ${LOW_GAMES_THRESHOLD} classical games in the last 12mo`,
+  'Farming ELO': `Red name flag: Avg. Opp. ELO is ${ELO_GAP_THRESHOLD}+ points off Current ELO (either direction)`,
+  'Long Slogger': 'Avg Moves green -- longer games than the tracked-player average',
+  'Fast Game': 'Avg Moves red -- shorter games than the tracked-player average',
+  'Uses rare opening - white': 'At least one of this player\'s top-3 White openings is red (bottom quartile by player-count) in the "Most Common Openings" table',
+  'Uses rare opening - black': 'At least one of this player\'s top-3 Black openings is red (bottom quartile by player-count) in the "Most Common Openings" table',
+  'In book (white)': 'All 3 of this player\'s top White openings are green in the "Most Common Openings" table',
+  'In book (black)': 'All 3 of this player\'s top Black openings are green in the "Most Common Openings" table',
+  'Risk Taker (white)': '2 or more of this player\'s top White openings are non-green in the "Most Common Openings" table',
+  'Risk Taker (black)': '2 or more of this player\'s top Black openings are non-green in the "Most Common Openings" table',
+  'Unorthodox': 'Risk Taker on BOTH White and Black',
+  'Workhorse': 'Games (12mo, classical) is 1+ std. dev. above the mean across all tracked players',
+  'Seen better days': `Current classical rating is ${SEEN_BETTER_DAYS_THRESHOLD}+ points below this player's best-ever classical rating (hover the label itself for the peak value and month/year)`,
+  'Elite in all time formats': `Top ${ELITE_RANK_THRESHOLD} in classical, rapid, AND blitz OPEN world rank`,
+  'Elite in all time formats - Women': `Top ${ELITE_RANK_THRESHOLD} in classical, rapid, AND blitz WOMEN'S world rank (2700chess scopes "world rank" to the women's pool for female players -- see the Labels legend)`,
+  'Prefers longer time formats': `Classical world rank is ${FORMAT_RANK_GAP_THRESHOLD}+ spots better than BOTH rapid and blitz`,
+  'Prefer rapid': `Rapid world rank is ${FORMAT_RANK_GAP_THRESHOLD}+ spots better than BOTH classical and blitz`,
+  'Blitzer': `Blitz world rank is ${FORMAT_RANK_GAP_THRESHOLD}+ spots better than BOTH classical and rapid, OR (if not already Elite) simply top ${ELITE_RANK_THRESHOLD} in blitz on its own, OR Blitz ELO is strictly the highest of Current/Rapid/Blitz ELO`,
+  'Prefer faster time formats': `BOTH rapid and blitz world rank are ${FORMAT_RANK_GAP_THRESHOLD}+ spots better than classical (regardless of which of the two is better)`,
+  'Good Rapid (Recency)': `Rapid rating gained more than ${RECENCY_GAIN_THRESHOLD} points over the trailing 12 months`,
+  'Good Blitz (Recency)': `Blitz rating gained more than ${RECENCY_GAIN_THRESHOLD} points over the trailing 12 months`,
+  'Out of shape for faster time formats (recency)': `BOTH Rapid Δ and Blitz Δ (12mo) are below ${RECENCY_DECLINE_THRESHOLD} points`,
+  'Rapid workhorse (recency)': 'Rapid Games (12mo) is 1+ std. dev. above the mean across all tracked players',
+  'Blitz workhorse (recency)': 'Blitz Games (12mo) is 1+ std. dev. above the mean across all tracked players',
+  'Few rapid (recency)': 'Rapid Games (12mo) is 1+ std. dev. below the mean across all tracked players',
+  'Few blitz (recency)': 'Blitz Games (12mo) is 1+ std. dev. below the mean across all tracked players',
+  'Good Classical Growth Past Year': `ELO Progression (12mo) chart (classical) gained more than ${CLASSICAL_GROWTH_GOOD_THRESHOLD} points, first point to last`,
+  'Great Classical Growth Past Year': `ELO Progression (12mo) chart (classical) gained more than ${CLASSICAL_GROWTH_GREAT_THRESHOLD} points, first point to last (replaces Good Classical Growth Past Year at this threshold)`,
+  'Regression Classical Growth Past Year': `ELO Progression (12mo) chart (classical) dropped more than ${Math.abs(CLASSICAL_REGRESSION_THRESHOLD)} points, first point to last`,
+};
+
+// A player's top-3 (White/Black) openings can list the SAME name more than
+// once under different ECO codes -- ECO is more granular than the display
+// name (e.g. "Nimzo-Indian Defense" spans E20-E59), so two of a player's
+// top-3 White entries can both be "Nimzo-Indian Defense" with different ECO
+// variations. That repetition is a stronger opening-preference signal than
+// any single top-3 entry alone, hence its own label.
+const OPENING_PREF_LABEL_RE = / Player, (White|Black)$/;
+
+function openingNameCounts(openings) {
+  const counts = new Map();
+  (openings || []).forEach(o => {
+    if (!o || !o.name) return;
+    counts.set(o.name, (counts.get(o.name) || 0) + 1);
+  });
+  return counts;
+}
+
+function openingPreferenceLabels(r) {
+  const labels = [];
+  openingNameCounts(r.top_openings_white).forEach((count, name) => {
+    if (count >= 2) labels.push(`${name} Player, White`);
+  });
+  openingNameCounts(r.top_openings_black).forEach((count, name) => {
+    if (count >= 2) labels.push(`${name} Player, Black`);
+  });
+  return labels;
+}
+
+function openingPreferenceTitle(r, label) {
+  const m = label.match(OPENING_PREF_LABEL_RE);
+  if (!m) return '';
+  const side = m[1].toLowerCase();
+  const name = label.slice(0, m.index);
+  const openings = (side === 'white' ? r.top_openings_white : r.top_openings_black) || [];
+  const count = openings.filter(o => o && o.name === name).length;
+  return `"${name}" appears ${count} of ${openings.length} times in this player's top-3 career ${side} openings (different ECO codes/variations sharing the same name)`;
+}
+
+// 'in' only when there are exactly 3 top openings and all 3 are green (an
+// "all three" claim needs three to check); 'out' when 2+ of whatever's there
+// are non-green (works even with fewer than 3 entries); null otherwise (e.g.
+// exactly 1 non-green out of 3 -- a mixed bag, deliberately left unlabeled).
+function bookStatus(openings, side) {
+  const clsList = (openings || []).map(o => openingCls(o.name, o.eco, side));
+  const nonGreen = clsList.filter(c => c !== 'moves-high').length;
+  if (clsList.length === 3 && nonGreen === 0) return 'in';
+  if (nonGreen >= 2) return 'out';
+  return null;
+}
+
+// Derived entirely from column colorings already computed elsewhere (rateClass,
+// movesClass, the name-flag checks) -- see the "Labels column" legend on the
+// page and README for the exact rule behind each one. Deliberately additive:
+// a player can carry several labels at once (e.g. red Win Rate + green Draw
+// Rate gives both "Very stable player/rarely goes for it" AND "Stable
+// Player", since both rules independently match).
+function computeLabels(r) {
+  const labels = [];
+  const winC = rateClass(r, 'win_rate');
+  const drawC = rateClass(r, 'draw_rate');
+  const lossC = rateClass(r, 'loss_rate');
+  const movesC = movesClass(r);
+
+  if (winC === 'moves-low' && lossC === 'moves-high') {
+    labels.push('Completely out of shape');
+  } else if (lossC === 'moves-high') {
+    labels.push('Out of Shape');
+  }
+  if (winC === 'moves-high') labels.push('Hot streak');
+  if (winC === 'moves-low' && drawC === 'moves-high') labels.push('Very stable player/rarely goes for it');
+  if (drawC === 'moves-low') labels.push('Rarely draws/Goes for it');
+  if (drawC === 'moves-high') labels.push('Stable Player');
+  if (lossC === 'moves-low') labels.push('Rarely loses');
+
+  if (isLowGamesFlagged(r)) labels.push('Low volume');
+  if (isEloGapFlagged(r)) labels.push('Farming ELO');
+
+  if (movesC === 'moves-high') labels.push('Long Slogger');
+  if (movesC === 'moves-low') labels.push('Fast Game');
+
+  if ((r.top_openings_white || []).some(o => openingCls(o.name, o.eco, 'white') === 'moves-low')) {
+    labels.push('Uses rare opening - white');
+  }
+  if ((r.top_openings_black || []).some(o => openingCls(o.name, o.eco, 'black') === 'moves-low')) {
+    labels.push('Uses rare opening - black');
+  }
+
+  const whiteBook = bookStatus(r.top_openings_white, 'white');
+  const blackBook = bookStatus(r.top_openings_black, 'black');
+  if (whiteBook === 'in') labels.push('In book (white)');
+  if (whiteBook === 'out') labels.push('Risk Taker (white)');
+  if (blackBook === 'in') labels.push('In book (black)');
+  if (blackBook === 'out') labels.push('Risk Taker (black)');
+  if (whiteBook === 'out' && blackBook === 'out') labels.push('Unorthodox');
+
+  if (GAMES_STDEV && (r.games_12mo ?? 0) >= GAMES_MEAN + GAMES_STDEV) {
+    labels.push('Workhorse');
+  }
+
+  if (RAPID_GAMES_STDEV) {
+    const v = r.rapid_games_12mo ?? 0;
+    if (v >= RAPID_GAMES_MEAN + RAPID_GAMES_STDEV) labels.push('Rapid workhorse (recency)');
+    else if (v <= RAPID_GAMES_MEAN - RAPID_GAMES_STDEV) labels.push('Few rapid (recency)');
+  }
+  if (BLITZ_GAMES_STDEV) {
+    const v = r.blitz_games_12mo ?? 0;
+    if (v >= BLITZ_GAMES_MEAN + BLITZ_GAMES_STDEV) labels.push('Blitz workhorse (recency)');
+    else if (v <= BLITZ_GAMES_MEAN - BLITZ_GAMES_STDEV) labels.push('Few blitz (recency)');
+  }
+
+  if (isSeenBetterDaysFlagged(r)) labels.push('Seen better days');
+  labels.push(...formatLabels(r));
+  labels.push(...openingPreferenceLabels(r));
+
+  return labels;
+}
+
+function labelBadges(r) {
+  if (!r.labels || !r.labels.length) return '<span class="na">—</span>';
+  return `<div class="label-badges">${r.labels.map(l => {
+    let title;
+    if (l === 'Seen better days') title = seenBetterDaysTitle(r);
+    else if (OPENING_PREF_LABEL_RE.test(l)) title = openingPreferenceTitle(r, l);
+    else title = LABEL_DESCRIPTIONS[l] || '';
+    return `<span class="badge" title="${escapeHtml(title)}">${escapeHtml(l)}</span>`;
+  }).join('')}</div>`;
+}
+
+function openingsList(openings, side) {
+  if (!openings || !openings.length) return '<span class="na">N/A</span>';
+  return openings.map(o =>
+    `<div class="${openingCls(o.name, o.eco, side)}">${escapeHtml(o.eco || '')} ${escapeHtml(o.name || '')} <span style="color:var(--text-muted)">(${o.games})</span></div>`
+  ).join('');
+}
+
+function sparkline(points) {
+  if (!points || points.length < 2) return '<span class="na">—</span>';
+  const w = 90, h = 26, pad = 3;
+  const vals = points.map(p => p.rating);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const span = Math.max(1, max - min);
+  const step = (w - pad * 2) / (points.length - 1);
+  const coords = points.map((p, i) => {
+    const x = pad + i * step;
+    const y = h - pad - ((p.rating - min) / span) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const last = points[points.length - 1];
+  const first = points[0];
+  const delta = last.rating - first.rating;
+  const deltaColor = delta > 0 ? 'var(--good)' : (delta < 0 ? 'var(--critical)' : 'var(--text-muted)');
+  const deltaStr = (delta > 0 ? '+' : '') + delta.toFixed(0);
+  return `<svg width="${w}" height="${h}" style="vertical-align:middle" role="img" aria-label="Rating trend">
+    <polyline points="${coords.join(' ')}" fill="none" stroke="${SERIES_COLOR}" stroke-width="1.75"
+      stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+  </svg><span style="font-size:11px;color:${deltaColor};margin-left:4px">${deltaStr}</span>`;
+}
+
+function render() {
+  const search = document.getElementById('search').value.trim().toLowerCase();
+  const activeOnly = document.getElementById('active-only').checked;
+  const hideLowActivity = document.getElementById('hide-low-activity').checked;
+  const womenOnly = document.getElementById('women-only').checked;
+  const natSel = Array.from(document.getElementById('nat-select').selectedOptions).map(o => o.value);
+  const labelSel = Array.from(document.getElementById('label-select').selectedOptions).map(o => o.value);
+
+  let rows = ALL.filter(r => {
+    if (search && !r.name.toLowerCase().includes(search)) return false;
+    if (natSel.length && !natSel.includes(r.nationality)) return false;
+    if (labelSel.length && !labelSel.some(l => r.labels.includes(l))) return false;
+    if (activeOnly && !r.games_12mo) return false;
+    if (hideLowActivity && isLowGamesFlagged(r)) return false;
+    if (womenOnly && r.sex !== 'F') return false;
+    return true;
+  });
+
+  rows.sort((a, b) => {
+    let av = a[sortKey], bv = b[sortKey];
+    if (sortKey === 'name') { av = a.name; bv = b.name; }
+    if (av === null || av === undefined) av = sortDir === 1 ? Infinity : -Infinity;
+    if (bv === null || bv === undefined) bv = sortDir === 1 ? Infinity : -Infinity;
+    if (typeof av === 'string') return sortDir * av.localeCompare(bv);
+    return sortDir * (av - bv);
+  });
+
+  document.getElementById('row-count').textContent = `${rows.length} / ${ALL.length} players`;
+
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = rows.map((r, i) => `
+    <tr>
+      <td class="num freeze-1">${i + 1}</td>
+      <td class="name freeze-2"><span class="title">${r.title || ''}</span>
+        <a href="${r.profile_url}" target="_blank" rel="noopener" class="${nameFlagClass(r)}"
+           title="${nameFlagTitle(r)}">${r.name}</a></td>
+      <td class="freeze-3">${labelBadges(r)}</td>
+      <td>${r.nationality}</td>
+      <td class="num">${fmt(r.age)}</td>
+      <td class="num">${fmt(r.current_elo, 0)}</td>
+      <td class="num">${fmt(r.classical_world_rank)}</td>
+      <td class="num ${deltaClass(r)}">${r.rating_delta_display ?? (r.rating_delta !== null && r.rating_delta !== undefined ? fmt(r.rating_delta, 1) : '<span class="na">N/A</span>')}</td>
+      <td class="num">${fmt(r.rapid_elo, 0)}</td>
+      <td class="num">${fmt(r.rapid_world_rank)}</td>
+      <td class="num">${fmt(r.blitz_elo, 0)}</td>
+      <td class="num">${fmt(r.blitz_world_rank)}</td>
+      <td class="num ${signedClass(r.rapid_progression_delta)}">${signedFmt(r.rapid_progression_delta)}</td>
+      <td class="num ${signedClass(r.blitz_progression_delta)}">${signedFmt(r.blitz_progression_delta)}</td>
+      <td class="num ${rapidGamesClass(r)}" title="${rapidGamesTitle(r)}">${r.rapid_games_12mo ?? 0}</td>
+      <td class="num ${blitzGamesClass(r)}" title="${blitzGamesTitle(r)}">${r.blitz_games_12mo ?? 0}</td>
+      <td class="num">${r.games_12mo ?? 0}</td>
+      <td class="num">${fmt(r.games_12mo_site)}</td>
+      <td class="num">${fmt(r.avg_opponent_elo, 0)}</td>
+      <td class="num ${movesClass(r)}" title="${movesTitle(r)}">${fmt(r.avg_moves, 1)}</td>
+      <td class="num ${rateClass(r, 'win_rate')}" title="${rateTitle(r, 'win_rate')}">${r.win_rate !== null ? r.win_rate + '%' : '<span class="na">N/A</span>'}</td>
+      <td class="num ${rateClass(r, 'draw_rate')}" title="${rateTitle(r, 'draw_rate')}">${r.draw_rate !== null ? r.draw_rate + '%' : '<span class="na">N/A</span>'}</td>
+      <td class="num ${rateClass(r, 'loss_rate')}" title="${rateTitle(r, 'loss_rate')}">${r.loss_rate !== null ? r.loss_rate + '%' : '<span class="na">N/A</span>'}</td>
+      <td class="num">${fmt(r.average_play, 0)}</td>
+      <td>${sparkline(r.elo_progression)}</td>
+      <td class="num"><span class="badge">N/A</span></td>
+      <td class="openings">${openingsList(r.top_openings_white, 'white')}</td>
+      <td class="openings">${openingsList(r.top_openings_black, 'black')}</td>
+    </tr>
+  `).join('');
+}
+
+function setupSort() {
+  document.querySelectorAll('#tbl thead th').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      if (['rank', 'progression', 'accuracy', 'openings_white', 'openings_black', 'labels'].includes(key)) return;
+      if (sortKey === key) sortDir *= -1; else { sortKey = key; sortDir = -1; }
+      render();
+    });
+  });
+}
+
+// ---- Nationality Breakdown table ----
+//
+// Three player populations per nationality, each stricter than the last:
+//   all    = tracked players of this nationality with games_12mo > 0
+//            ("Only players with games in the window", same field the
+//            "active-only" checkbox above filters on)
+//   active = the above, further narrowed to games_12mo >= LOW_GAMES_THRESHOLD
+//            (i.e. also NOT flagged low-activity/blue-purple -- same
+//            population the "Hide low-activity" checkbox isolates)
+//   youth  = ALL tracked players of this nationality (no activity filter)
+//            with age < YOUNG_AGE_THRESHOLD
+// CompositeScore = count x avg ELO for that population, rounded to 1 decimal.
+const YOUNG_AGE_THRESHOLD = 25;
+const NAT_RANK_KEYS = new Set(['allRank', 'activeRank', 'youthRank']);
+let NATIONALITY_STATS = [];
+let natSortKey = 'allRank';
+let natSortDir = -1;
+
+function natGroupStats(list) {
+  const n = list.length;
+  if (!n) return { count: 0, avgElo: null, composite: null };
+  const avgElo = list.reduce((s, p) => s + (p.current_elo || 0), 0) / n;
+  return {
+    count: n,
+    avgElo: Math.round(avgElo * 10) / 10,
+    composite: Math.round(n * avgElo * 10) / 10,
+  };
+}
+
+function natExamplesTitle(list, label) {
+  if (!list.length) return `No players match "${label}" for this nationality.`;
+  const sorted = list.slice().sort((a, b) => (b.current_elo || 0) - (a.current_elo || 0));
+  const shown = sorted.slice(0, 12).map(p => `${p.name} (${fmt(p.current_elo, 0)})`);
+  const more = sorted.length > 12 ? `, +${sorted.length - 12} more` : '';
+  return `${label} (${list.length}): ${shown.join(', ')}${more}`;
+}
+
+function computeNationalityStats(players) {
+  const byNat = new Map();
+  players.forEach(p => {
+    if (!p.nationality) return;
+    if (!byNat.has(p.nationality)) byNat.set(p.nationality, { all: [], active: [], youth: [] });
+    const bucket = byNat.get(p.nationality);
+    if (p.games_12mo) bucket.all.push(p);
+    if ((p.games_12mo ?? 0) >= LOW_GAMES_THRESHOLD) bucket.active.push(p);
+    if (p.age !== null && p.age !== undefined && p.age < YOUNG_AGE_THRESHOLD) bucket.youth.push(p);
+  });
+
+  const rows = [];
+  byNat.forEach((bucket, nationality) => {
+    const all = natGroupStats(bucket.all);
+    const active = natGroupStats(bucket.active);
+    const youth = natGroupStats(bucket.youth);
+    let avgAge = null, stdevAge = null;
+    if (bucket.all.length) {
+      const ages = bucket.all.map(p => p.age ?? 0);
+      const mean = ages.reduce((s, a) => s + a, 0) / ages.length;
+      const variance = ages.length > 1
+        ? ages.reduce((s, a) => s + (a - mean) ** 2, 0) / (ages.length - 1)
+        : 0;
+      avgAge = Math.round(mean * 10) / 10;
+      stdevAge = Math.round(Math.sqrt(variance) * 10) / 10;
+    }
+    rows.push({
+      nationality,
+      allCount: all.count, allAvgElo: all.avgElo, avgAge, stdevAge, allComposite: all.composite,
+      activeCount: active.count, activeAvgElo: active.avgElo, activeComposite: active.composite,
+      youthCount: youth.count, youthAvgElo: youth.avgElo, youthComposite: youth.composite,
+      allExamples: bucket.all, activeExamples: bucket.active, youthExamples: bucket.youth,
+    });
+  });
+
+  function assignRanks(key, rankKey) {
+    const ranked = rows.filter(r => r[key] !== null && r[key] !== undefined)
+      .sort((a, b) => b[key] - a[key] || a.nationality.localeCompare(b.nationality));
+    ranked.forEach((r, i) => { r[rankKey] = i + 1; });
+    rows.filter(r => r[key] === null || r[key] === undefined).forEach(r => { r[rankKey] = null; });
+  }
+  assignRanks('allComposite', 'allRank');
+  assignRanks('activeComposite', 'activeRank');
+  assignRanks('youthComposite', 'youthRank');
+
+  NATIONALITY_STATS = rows;
+}
+
+const NAT_COUNT_KEYS = new Set(['allCount', 'activeCount', 'youthCount']);
+
+function natCell(r, key) {
+  if (key === 'avgAge') {
+    if (r.avgAge === null) return '<span class="na">N/A</span>';
+    return `${fmt(r.avgAge, 1)} (${fmt(r.stdevAge, 1)})`;
+  }
+  const v = r[key];
+  if (NAT_RANK_KEYS.has(key) || NAT_COUNT_KEYS.has(key)) {
+    return v === null || v === undefined ? '<span class="na">N/A</span>' : String(v);
+  }
+  return fmt(v, 1);
+}
+
+function natRankTitle(r, key) {
+  if (key === 'allRank') return natExamplesTitle(r.allExamples, `All GMs with games in the window, ${r.nationality}`);
+  if (key === 'activeRank') return natExamplesTitle(r.activeExamples, `Active GMs (games in window, excl. low-activity), ${r.nationality}`);
+  return natExamplesTitle(r.youthExamples, `Youth GMs (age < ${YOUNG_AGE_THRESHOLD}), ${r.nationality}`);
+}
+
+// Rank columns sort "best first" (rank 1 at top) on a default/first click,
+// same as every other column's largest-value-first default -- just with the
+// direction inverted, since for a rank 1 IS the largest/best value. Achieved
+// by comparing on -rank rather than rank itself, so the shared descending-
+// first comparator below needs no special-casing.
+function natSortValue(r, key) {
+  const v = r[key];
+  if (v === null || v === undefined) return null;
+  return NAT_RANK_KEYS.has(key) ? -v : v;
+}
+
+function renderNationalityTable() {
+  const rows = NATIONALITY_STATS.slice();
+  rows.sort((a, b) => {
+    if (natSortKey === 'nationality') return natSortDir * a.nationality.localeCompare(b.nationality);
+    let av = natSortValue(a, natSortKey);
+    let bv = natSortValue(b, natSortKey);
+    if (av === null) av = natSortDir === 1 ? Infinity : -Infinity;
+    if (bv === null) bv = natSortDir === 1 ? Infinity : -Infinity;
+    return natSortDir * (av - bv);
+  });
+
+  const cols = ['allCount', 'allAvgElo', 'avgAge', 'allComposite',
+    'activeCount', 'activeAvgElo', 'activeComposite',
+    'youthCount', 'youthAvgElo', 'youthComposite',
+    'allRank', 'activeRank', 'youthRank'];
+  const tbody = document.getElementById('nationality-tbody');
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td class="nat-freeze-1" title="${escapeHtml(r.nationality)}">${escapeHtml(r.nationality)}</td>
+      ${cols.map(key => {
+        const title = NAT_RANK_KEYS.has(key) ? ` title="${escapeHtml(natRankTitle(r, key))}"` : '';
+        return `<td class="num"${title}>${natCell(r, key)}</td>`;
+      }).join('')}
+    </tr>
+  `).join('');
+
+  document.getElementById('nationality-note').textContent =
+    `${rows.length} nationalities. Sorted by ${document.querySelector(`#nationality-tbl th[data-key="${natSortKey}"]`)?.textContent || natSortKey}, `
+    + `${natSortDir === -1 ? 'best/highest first' : 'lowest/worst first'}.`;
+}
+
+function setupNatSort() {
+  document.querySelectorAll('#nationality-tbl thead th').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.key;
+      if (natSortKey === key) natSortDir *= -1; else { natSortKey = key; natSortDir = -1; }
+      renderNationalityTable();
+    });
+  });
+}
+
+async function load() {
+  const [players, meta] = await Promise.all([
+    fetch('data/players.json').then(r => r.json()),
+    fetch('data/meta.json').then(r => r.json()),
+  ]);
+  players.forEach(p => {
+    // Weighted 3/4 avg-opponent-ELO, 1/4 win-rate: the multiplier ranges from
+    // 3/4 (0% win rate) up to 1.0 (100% win rate), so opponent strength
+    // dominates even more heavily and win rate only nudges the result by at
+    // most +/-1/8.
+    p.average_play = (p.avg_opponent_elo !== null && p.win_rate !== null)
+      ? Math.round(p.avg_opponent_elo * (3/4 + (1/4) * (p.win_rate / 100)))
+      : null;
+    p.draw_rate = p.games_12mo ? Math.round(1000 * p.draws / p.games_12mo) / 10 : null;
+    p.loss_rate = p.games_12mo ? Math.round(1000 * p.losses / p.games_12mo) / 10 : null;
+    // Classical counterpart to rapid_progression_delta/blitz_progression_delta
+    // (those two are computed server-side; elo_progression itself is the only
+    // classical series the API sends, so the first-to-last delta is derived
+    // here client-side, same convention the sparkline() already uses to color
+    // its own inline delta label).
+    p.classical_progression_delta = (p.elo_progression && p.elo_progression.length >= 2)
+      ? p.elo_progression[p.elo_progression.length - 1].rating - p.elo_progression[0].rating
+      : null;
+  });
+  ALL = players;
+  computeMovesStats(players);
+  computeGamesStats(players);
+  computeRapidBlitzGamesStats(players);
+  computeRateBrackets(players, 'win_rate');
+  computeRateBrackets(players, 'draw_rate');
+  computeRateBrackets(players, 'loss_rate');
+  computeOpeningsAgg(players);
+  players.forEach(p => { p.labels = computeLabels(p); });
+
+  const natSelect = document.getElementById('nat-select');
+  natSelect.innerHTML = meta.nationalities.map(n => `<option value="${n}">${n}</option>`).join('');
+
+  // Opening-preference labels ("<Name> Player, White/Black") are data-driven
+  // -- there's no fixed list of possible opening names to put in ALL_LABELS
+  // up front, so the dropdown includes whichever ones actually occurred in
+  // this run, discovered the same way the Nationality dropdown is built
+  // from meta.nationalities rather than a hardcoded list.
+  const dynamicLabels = new Set();
+  players.forEach(p => p.labels.forEach(l => { if (OPENING_PREF_LABEL_RE.test(l)) dynamicLabels.add(l); }));
+  const labelOptions = [...ALL_LABELS, ...Array.from(dynamicLabels).sort()];
+
+  const labelSelect = document.getElementById('label-select');
+  labelSelect.innerHTML = labelOptions.map(l => `<option value="${escapeHtml(l)}">${escapeHtml(l)}</option>`).join('');
+
+  const lastRun = meta.last_run;
+  const noteEl = document.getElementById('meta-note');
+  if (lastRun && lastRun.finished_at) {
+    const when = new Date(lastRun.finished_at * 1000).toLocaleString();
+    noteEl.textContent = `Last scraped ${when} — ${lastRun.players_found}/${lastRun.players_scanned} players stored (threshold ${lastRun.rating_threshold}+, ${lastRun.months_back}mo window). ${meta.accuracy_note}`;
+  } else {
+    noteEl.textContent = meta.accuracy_note;
+  }
+
+  const withGames = players.filter(p => p.games_12mo);
+  const avgElo = players.length ? Math.round(players.reduce((s, p) => s + (p.current_elo || 0), 0) / players.length) : 0;
+  const avgGames = withGames.length ? Math.round(withGames.reduce((s, p) => s + p.games_12mo, 0) / withGames.length) : 0;
+  document.getElementById('stat-tiles').innerHTML = `
+    <div class="stat-tile"><div class="label">Players tracked</div><div class="value">${players.length}</div></div>
+    <div class="stat-tile"><div class="label">Avg current ELO</div><div class="value">${avgElo}</div></div>
+    <div class="stat-tile"><div class="label">Active in window</div><div class="value">${withGames.length}</div></div>
+    <div class="stat-tile"><div class="label">Avg games / active player</div><div class="value">${avgGames}</div></div>
+    <div class="stat-tile"><div class="label">Nationalities</div><div class="value">${meta.nationalities.length}</div></div>
+  `;
+
+  computeNationalityStats(players);
+  document.getElementById('nationality-blurb').innerHTML =
+    `Per-nationality rollup in three progressively narrower populations: <strong>all tracked</strong> `
+    + `(players with games in the trailing 12-month window -- same "Only players with games in the `
+    + `window" filter as above), <strong>active</strong> (that group further narrowed to exclude `
+    + `low-activity/blue-purple players, i.e. games<sub>12mo</sub> &ge; ${LOW_GAMES_THRESHOLD} -- same `
+    + `population "Hide low-activity" isolates), and <strong>youth</strong> (ALL tracked players of that `
+    + `nationality, no activity filter, under age ${YOUNG_AGE_THRESHOLD}). Each group's CompositeScore is `
+    + `player count &times; average ELO for that group, rounded to 1 decimal. Table slides right for the `
+    + `13 data columns; Nationality stays frozen on the left. Click any header to sort by it, descending `
+    + `first (largest/best value on top) and again to reverse -- Avg Age sorts by the average only, `
+    + `ignoring the parenthetical std. dev.; the three Rank columns sort rank 1 to the top by default `
+    + `since rank 1 IS the best value there. Loads sorted by <strong>Rank &mdash; All</strong>, descending `
+    + `(best nationality first). Hover a value in any Rank column for the example players behind it.`;
+  renderNationalityTable();
+
+  render();
+  loadSites(meta);
+}
+
+// OPENING_STATS.white / .black: Map("eco|name" -> {eco, name, playerCount, cls})
+// cls: 'moves-high' (green) / 'moves-low' (red) / '' (unremarkable). Deliberately
+// counts DISTINCT PLAYERS whose career top-3 includes the opening, not summed
+// game counts -- summing would let one prolific player's raw game total dominate
+// the ranking; counting players answers "how many of our ~300 tracked elites
+// have this in their personal top-3", which is what actually shows
+// uniqueness/commonality across the field.
+//
+// Green and red use DIFFERENT rules on purpose. Per-opening player-counts are
+// heavily right-skewed (most openings sit at 1 player, a handful of "hub"
+// openings like the Sicilian/Italian Game are shared by dozens), which pushes
+// mean+stdev high enough that "1 stdev above the mean" still isolates a
+// meaningful green set -- but "1 stdev below the mean" is mathematically
+// unreachable (mean - stdev routinely goes negative, and a player-count can't).
+// So green stays mean + 1 stdev; red uses the bottom quartile (<= the 25th
+// percentile player-count) instead, which is well-defined regardless of skew.
+let OPENING_STATS = { white: new Map(), black: new Map() };
+
+function quantile(sortedVals, q) {
+  if (!sortedVals.length) return null;
+  const pos = (sortedVals.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  return sortedVals[base + 1] !== undefined
+    ? sortedVals[base] + rest * (sortedVals[base + 1] - sortedVals[base])
+    : sortedVals[base];
+}
+
+function aggregateOpenings(players, side) {
+  const field = side === 'white' ? 'top_openings_white' : 'top_openings_black';
+  const counts = new Map();
+  players.forEach(p => {
+    const seen = new Set();
+    (p[field] || []).forEach(o => {
+      if (!o || !o.name) return;
+      const key = `${o.eco || '?'}|${o.name}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (!counts.has(key)) counts.set(key, { eco: o.eco || '?', name: o.name, playerCount: 0, examples: [] });
+      const entry = counts.get(key);
+      entry.playerCount += 1;
+      entry.examples.push({ name: p.name, elo: p.current_elo || 0, title: p.title || '' });
+    });
+  });
+  // Trim each key's examples to its top-5 by current classical ELO -- these
+  // feed the Opening Explorer's "top grandmasters who play this" list, so
+  // no point keeping the full (sometimes 90+ player) list around per key.
+  counts.forEach(v => {
+    v.examples.sort((a, b) => b.elo - a.elo);
+    v.examples = v.examples.slice(0, 5);
+  });
+
+  const vals = Array.from(counts.values()).map(v => v.playerCount);
+  const sorted = [...vals].sort((a, b) => a - b);
+  let mean = null, stdev = null;
+  if (vals.length >= 2) {
+    mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+    const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / (vals.length - 1);
+    stdev = Math.sqrt(variance);
+  }
+  const q1 = quantile(sorted, 0.25);
+  counts.forEach(v => {
+    v.cls = '';
+    if (stdev && v.playerCount >= mean + stdev) v.cls = 'moves-high';
+    else if (q1 !== null && v.playerCount <= q1) v.cls = 'moves-low';
+  });
+  return { map: counts, mean, stdev, q1, n: vals.length };
+}
+
+function renderOpeningsAggTable(tbodyId, stats) {
+  const rows = Array.from(stats.map.values()).sort((a, b) => b.playerCount - a.playerCount || a.name.localeCompare(b.name));
+  document.getElementById(tbodyId).innerHTML = rows.map((r, i) => `
+    <tr>
+      <td class="num">${i + 1}</td>
+      <td>${escapeHtml(r.eco)}</td>
+      <td class="${r.cls}">${escapeHtml(r.name)}</td>
+      <td class="num ${r.cls}">${r.playerCount}</td>
+    </tr>
+  `).join('');
+}
+
+function computeOpeningsAgg(players) {
+  OPENING_STATS.white = aggregateOpenings(players, 'white');
+  OPENING_STATS.black = aggregateOpenings(players, 'black');
+  renderOpeningsAggTable('openings-white-tbody', OPENING_STATS.white);
+  renderOpeningsAggTable('openings-black-tbody', OPENING_STATS.black);
+
+  const w = OPENING_STATS.white, b = OPENING_STATS.black;
+  document.getElementById('openings-agg-note').textContent =
+    `Computed from the ${players.length} tracked players' own career top-3 White/Black openings `
+    + `(same data as the per-player columns) -- ${w.map.size} distinct White openings `
+    + `(mean ${w.mean !== null ? w.mean.toFixed(1) : '?'} players/opening, bottom quartile <= `
+    + `${w.q1 !== null ? w.q1.toFixed(1) : '?'}), ${b.map.size} distinct Black openings `
+    + `(mean ${b.mean !== null ? b.mean.toFixed(1) : '?'}, bottom quartile <= `
+    + `${b.q1 !== null ? b.q1.toFixed(1) : '?'}). Green = 1+ std. dev. above the mean player-count `
+    + `for that side; red = bottom quartile (<= the 25th percentile player-count) -- NOT a symmetric `
+    + `+/-1 stdev rule, because player-count is heavily right-skewed (most openings sit at 1 player, `
+    + `a few hub openings like the Sicilian are shared by dozens), which pushes mean-1stdev negative `
+    + `and makes it unreachable. Counts DISTINCT PLAYERS who have the opening in their top-3, not `
+    + `total games -- a single prolific player can't inflate the ranking. Career-wide, all time `
+    + `controls, top-3-per-player only (not a full repertoire) -- see footer.`;
+
+  populateOpeningExplorerDropdowns();
+}
+
+function openingCls(name, eco, side) {
+  const stats = OPENING_STATS[side];
+  if (!stats) return '';
+  const entry = stats.map.get(`${eco || '?'}|${name}`);
+  return entry ? entry.cls : '';
+}
+
+// Opening Explorer -- dropdowns are populated from OPENING_STATS (the same
+// per-player top-3-openings data used by the "Most Common Openings" tables
+// above), so "top 20" always tracks whatever the current dataset actually
+// contains. The move sequences and strengths/weaknesses text in OPENING_BOOK
+// are a curated, static reference (keyed by ECO code) -- 2700chess.com does
+// not publish per-game move lists, so this is a representative main-line
+// "book" continuation for illustration, not a specific tracked player's game.
+// Not every ECO code that could theoretically appear here has an entry;
+// oeLoadOpening() falls back to a plain message when one is missing.
+const OPENING_BOOK = {
+  B12: { moves: 'e4 c6 d4 d5 e5 Bf5 Nf3 e6 Be2 c5 Be3 Qb6 Nc3 Nc6 O-O'.split(' '),
+    white: { strengths: 'A safe space advantage from e5 with no early commitments; White can choose a slow buildup (Be2, O-O, c3) or a sharp kingside pawn storm (g4, h4) against the same Black setup.',
+      weaknesses: 'The e5 pawn is a long-term target once Black finishes development (…f6 or …c5/…Nc6 pressure), and committing to g4 lines can leave the white king exposed if the attack stalls.' },
+    black: { strengths: 'Extremely solid: the light-squared bishop escapes to f5 before …e6 locks it in, which is the whole point of the Caro-Kann versus the French. Very hard to lose quickly.',
+      weaknesses: 'Passive and slightly cramped -- Black has less space and must time the …c5 break carefully, or White\'s space advantage becomes permanent.' } },
+  B90: { moves: 'e4 c5 Nf3 d6 d4 cxd4 Nxd4 Nf6 Nc3 a6 Be3 e5 Nb3 Be6 f3'.split(' '),
+    white: { strengths: 'The English Attack (Be3/f3/Qd2/O-O-O) gives White a direct, well-mapped kingside attacking plan with g4/h4/g5 while castling away from Black\'s queenside counterplay.',
+      weaknesses: 'Extremely sharp and theory-heavy -- one inaccurate move order can hand Black the initiative first, and opposite-side castling means king safety is a race, not a given.' },
+    black: { strengths: 'The most flexible, best-tested response to 1.e4, giving Black active queenside space (…b5, …Rb8) and long-term counterplay against a committal White setup.',
+      weaknesses: 'Requires deep, precise theoretical knowledge -- a single move-order slip in the sharpest lines can be fatal, and Black is often reacting to White\'s attacking choices rather than dictating play.' } },
+  C54: { moves: 'e4 e5 Nf3 Nc6 Bc4 Bc5 c3 Nf6 d3 O-O O-O d6 Re1 a6'.split(' '),
+    white: { strengths: 'Rapid, natural development aimed straight at f7, with flexible follow-ups (a quiet d3 buildup or a sharper d4 central break) depending on how Black reacts.',
+      weaknesses: 'The quiet d3 approach concedes a fully symmetric, comfortable game to Black with few real winning tries if Black defends accurately.' },
+    black: { strengths: 'Fully symmetric development makes equality straightforward, and Black has clean plans (…d6, …a6, …Ba7 or …Bb6) against any White setup.',
+      weaknesses: 'Little independent counterplay of its own -- Black is largely mirroring White\'s ideas rather than generating original imbalances.' } },
+  E11: { moves: 'd4 Nf6 c4 e6 Nf3 Bb4+ Bd2 Qe7 g3 Nc6 Bg2 Bxd2+ Qxd2 O-O'.split(' '),
+    white: { strengths: 'Avoids the doubled c-pawns White risks in the Nimzo-Indian, keeping a clean structure and a small, safe, long-term edge with the fianchetto setup.',
+      weaknesses: 'The position is fairly symmetrical and drawish -- White\'s edge is real but small, and there is little room to force matters.' },
+    black: { strengths: 'Simplifies quickly and safely, trading the dark-squared bishop for an easy, low-risk equalizing setup that is simple to play from memory.',
+      weaknesses: 'Less ambitious than committing to the Nimzo-Indian (…Bxc3) -- Black gives up the chance to double White\'s pawns in exchange for simplicity, so winning chances are limited.' } },
+  D02: { moves: 'd4 d5 Nf3 Nf6 Bf4 e6 e3 Bd6 Bg3 O-O Nbd2 c5 c3'.split(' '),
+    white: { strengths: 'Very low theory and easy to learn -- the same Bf4/e3/Nbd2/c3 setup works against almost anything Black tries, making it a favorite practical weapon at every level.',
+      weaknesses: 'Passive and non-committal -- if Black meets it with accurate, well-timed …c5 and …Qb6 counterplay against the light squares, White\'s edge can evaporate entirely.' },
+    black: { strengths: 'Comfortable and low-theory to meet in return; Black can choose from several solid setups without needing deep preparation.',
+      weaknesses: 'Must actively challenge the Bf4/e3 pawn chain (…c5, …Qb6) or risk being slowly squeezed with no counterplay of its own.' } },
+  E04: { moves: 'd4 Nf6 c4 e6 g3 d5 Bg2 dxc4 Nf3 c5 O-O Nc6 Qa4'.split(' '),
+    white: { strengths: 'The fianchettoed bishop on g2 exerts long-term pressure down the long diagonal, and White typically regains the c4 pawn while keeping the better minor piece and a lasting positional squeeze.',
+      weaknesses: 'Requires patience -- there is no immediate attack, and if Black completes development smoothly (…b5 to hold the extra pawn, or timely …Bd7/…Rc8), the "compensation" can run dry.' },
+    black: { strengths: 'Grabs a genuine extra pawn on c4 and, with careful play (…b5, …Bb7), can consolidate the extra material or return it at a moment of Black\'s choosing.',
+      weaknesses: 'Chronic pressure on the long diagonal and the c-file can leave Black permanently on the defensive if development is even slightly delayed.' } },
+  D37: { moves: 'd4 d5 c4 e6 Nc3 Nf6 Nf3 Be7 Bf4 O-O e3 c5 dxc5'.split(' '),
+    white: { strengths: 'Classical central control (d4/c4) with flexible piece placement and a small, stable space advantage in a well-understood structure.',
+      weaknesses: 'One of the most heavily analyzed positions in chess -- genuine winning chances against precise defense are modest.' },
+    black: { strengths: 'Rock solid with almost no structural weaknesses; extremely hard to lose against with accurate, well-known theory.',
+      weaknesses: 'Correspondingly hard to win with either -- Black\'s position is safe but passive until an imbalance (like the c5 break) is timed well.' } },
+  C42: { moves: 'e4 e5 Nf3 Nf6 Nxe5 d6 Nf3 Nxe4 d4 d5 Bd3 Nc6 O-O Be7'.split(' '),
+    white: { strengths: 'Keeps a small space and development edge while facing an opponent who has explicitly chosen the drawish path, so any imprecision by Black can be punished.',
+      weaknesses: 'The Petroff\'s reputation as a rock-solid equalizer is well earned -- objectively there is very little to play for if Black knows the theory.' },
+    black: { strengths: 'One of the most reliable "draw weapons" at elite level -- highly symmetric, low-risk, and extremely difficult for White to crack with best play.',
+      weaknesses: 'Almost entirely passive by design; Black has few independent winning tries and is choosing safety over ambition.' } },
+  A13: { moves: 'c4 e6 Nf3 d5 g3 Nf6 Bg2 Be7 O-O O-O b3 c5 Bb2'.split(' '),
+    white: { strengths: 'Very flexible flank opening that can transpose into Catalan- or Réti-style structures, letting White sidestep an opponent\'s specific 1.d4 preparation.',
+      weaknesses: 'The flexibility cuts both ways -- White must know several transpositional structures well, and an unprepared player can drift into a worse version of a QGD/Catalan.' },
+    black: { strengths: 'Solid and reversed-opening-friendly -- Black can steer toward familiar Queen\'s Gambit or English structures depending on preference.',
+      weaknesses: 'Requires comfort with transpositions; playing "on autopilot" against the various move orders can land Black in a slightly passive setup.' } },
+  E12: { moves: 'd4 Nf6 c4 e6 Nf3 b6 a3 Bb7 Nc3 d5 cxd5 Nxd5 Qc2'.split(' '),
+    white: { strengths: 'a3 pre-empts the annoying …Bb4 pin, letting White build a full classical center (e4 next) with an unopposed setup.',
+      weaknesses: 'Spending a tempo on a3 is slow, and if White is not precise Black\'s central …d5 break neutralizes the extra space entirely.' },
+    black: { strengths: 'The fianchettoed bishop on b7 controls e4 and the long diagonal, giving one of the most resilient, low-weakness setups against 1.d4.',
+      weaknesses: 'Very solid but modest in ambition -- Black is fighting for equality and comfortable structure rather than any early initiative.' } },
+  D35: { moves: 'd4 d5 c4 e6 Nc3 Nf6 cxd5 exd5 Bg5 Be7 e3 O-O Bd3 c6'.split(' '),
+    white: { strengths: 'The Exchange Variation hands White a clear, textbook strategic plan -- the queenside minority attack (b4-b5) to create a weakness on Black\'s queenside.',
+      weaknesses: 'The plan is well known to both sides; if Black generates timely kingside or central counterplay, White\'s minority attack can run out of steam before it bites.' },
+    black: { strengths: 'A completely symmetric, well-mapped structure where Black knows exactly what White is trying to do and can prepare specific counter-plans (…Ne4, …f5, or a timely …c5).',
+      weaknesses: 'Purely reactive -- Black must correctly time counterplay against the minority attack or drift into a permanently weak queenside pawn.' } },
+  B33: { moves: 'e4 c5 Nf3 Nc6 d4 cxd4 Nxd4 Nf6 Nc3 e5 Ndb5 d6 Bg5 a6 Na3 b5'.split(' '),
+    white: { strengths: 'Gets a long-term structural target -- the hole on d5 and Black\'s backward d6-pawn -- that a well-placed knight can exploit for the rest of the game.',
+      weaknesses: 'Must navigate razor-sharp, deeply analyzed forcing lines (including piece sacrifices in some branches) with essentially no room for improvisation.' },
+    black: { strengths: 'One of the most dynamic Sicilians -- active, fast piece play and central counterplay compensate for the structural weaknesses, and Black is rarely worse in practice.',
+      weaknesses: 'The backward d6-pawn and the d5 hole are real, permanent weaknesses if the dynamic compensation ever dries up or gets traded away.' } },
+  E15: { moves: 'd4 Nf6 c4 e6 Nf3 b6 g3 Ba6 b3 Bb4+ Bd2 Be7 Bg2 c6'.split(' '),
+    white: { strengths: 'Harmonious fianchetto development (g3/Bg2) that supports the center while keeping options open on how to meet Black\'s pressure on c4.',
+      weaknesses: 'Fairly slow -- White commits no central pawns beyond d4 for many moves, giving Black time to fully equalize with accurate play.' },
+    black: { strengths: '…Ba6 immediately pressures c4 before White can defend it comfortably, a sharper try than the plain …Bb7 Queen\'s Indian setups.',
+      weaknesses: 'The b4-bishop often has to retreat with a loss of tempo, and Black must know the resulting structures well to avoid ending up simply a tempo down.' } },
+  A07: { moves: 'Nf3 d5 g3 Nf6 Bg2 e6 O-O Be7 d3 O-O Nbd2 c5 e4'.split(' '),
+    white: { strengths: 'The King\'s Indian Attack setup delays central commitment, letting White react to Black\'s structure before breaking with e4 (and later f4) for a kingside space advantage.',
+      weaknesses: 'Slow and flexible cuts both ways -- if White is not precise with the timing of e4/f4, Black\'s freer center (…d5, …c5) can seize the initiative instead.' },
+    black: { strengths: 'Black gets a completely free choice of setup against White\'s flexible flank development, and can meet the King\'s Indian Attack with well-known equalizing plans (…c5, …Nc6, …b5).',
+      weaknesses: 'Must respect White\'s coming e4-e5 space gain and time central or queenside counterplay correctly, or end up passively squeezed.' } },
+  C45: { moves: 'e4 e5 Nf3 Nc6 d4 exd4 Nxd4 Nf6 Nxc6 bxc6 e5 Qe7 Qe2 Nd5'.split(' '),
+    white: { strengths: 'Opens the center immediately for quick development and gives Black doubled c-pawns, a small structural concession White can press for the rest of the game.',
+      weaknesses: 'Early queen moves (Qe2) and quick simplification can also hand Black the bishop pair and active piece play, offsetting the structural edge.' },
+    black: { strengths: 'The doubled c-pawns come with genuine compensation: the bishop pair and open lines for active piece play, especially against an exposed white king.',
+      weaknesses: 'The pawn structure is objectively worse long-term, and in a simplified endgame the weak pawns can become a real liability if the dynamic compensation is traded away.' } },
+  C67: { moves: 'e4 e5 Nf3 Nc6 Bb5 Nf6 O-O Nxe4 d4 Nd6 Bxc6 dxc6 dxe5 Nf5 Qxd8+ Kxd8'.split(' '),
+    white: { strengths: 'The famous "Berlin endgame" gives White a small, safe, risk-free pull from a better pawn structure and the extra e5 pawn-space, with essentially no danger of losing.',
+      weaknesses: 'The resulting position is a queenless middlegame/endgame with very limited winning chances against accurate defense -- it is a small edge, not a real attack.' },
+    black: { strengths: 'The "Berlin Wall" is chess\'s most famous elite drawing weapon: trading queens early removes almost all of White\'s attacking chances and is extremely hard to lose.',
+      weaknesses: 'Black voluntarily loses castling rights and enters a slightly worse structure -- there is close to zero winning chance for Black, only a very safe draw.' } },
+  B22: { moves: 'e4 c5 c3 Nf6 e5 Nd5 d4 cxd4 Nf3 Nc6 cxd4 d6 Bc4 Nb6 Bb3'.split(' '),
+    white: { strengths: 'The Alapin sidesteps the enormous, ever-growing Open Sicilian theory entirely while still building a full classical center (c3/d4), making it a very practical, low-prep weapon.',
+      weaknesses: 'Objectively less venomous than the main lines -- a well-prepared Black player can equalize comfortably and the position often simplifies quickly.' },
+    black: { strengths: 'Comfortable and easy to prepare for once the key ideas (…d5 or …Nf6/…d6 setups) are known, without needing Najdorf-level Open Sicilian theory.',
+      weaknesses: 'Must still play precisely to challenge White\'s center -- a passive response lets White keep a safe, pleasant space advantage.' } },
+  C02: { moves: 'e4 e6 d4 d5 e5 c5 c3 Nc6 Nf3 Qb6 a3 Nh6 b4'.split(' '),
+    white: { strengths: 'The locked pawn chain gives a clear plan and a lasting space advantage, with straightforward attacking or expansion ideas on both wings.',
+      weaknesses: 'The chain\'s base on d4 is a fixed, well-known target, and if White\'s attack is too slow Black\'s pressure on d4 (…cxd4, …Nh6-f5, …Qb6) can become very awkward.' },
+    black: { strengths: 'A clear, well-defined plan of attacking the base of White\'s pawn chain at d4 with …cxd4, …Nc6, …Qb6 and …Nh6-f5, giving concrete counterplay despite less space.',
+      weaknesses: 'The light-squared bishop is badly hemmed in behind the pawn chain for a long time, and Black must be patient while White\'s space advantage persists.' } },
+  D00: { moves: 'd4 d5 Bg5 h6 Bh4 c6 e3 Qb6 Qc1'.split(' '),
+    white: { strengths: 'An unusual, low-theory early bishop sortie that can provoke early weaknesses (…h6, …f6) and take an unprepared opponent out of known territory immediately.',
+      weaknesses: 'Objectively modest -- the bishop can become a target for tempo gains, and a well-prepared Black player equalizes comfortably with normal development.' },
+    black: { strengths: 'Simple and safe to meet with normal development; Black can gain a tempo hitting the bishop and is rarely worse if familiar with the idea.',
+      weaknesses: 'An unprepared player can be surprised into a slightly awkward setup (…h6/…Qb6 committing early) before realizing there was no real danger.' } },
+  D38: { moves: 'd4 d5 c4 e6 Nc3 Nf6 Nf3 Bb4 Bg5 h6 Bxf6 Qxf6 e3 O-O'.split(' '),
+    white: { strengths: 'Keeps a small, stable central and structural edge, and the trade on f6 can leave Black with a slightly clumsy queen placement to untangle.',
+      weaknesses: 'Giving up the bishop pair on f6 is a real concession -- if Black gets in …c5 and consolidates, White\'s edge can be very small indeed.' },
+    black: { strengths: 'The Ragozin is a modern, highly-regarded equalizer: Black gets the bishop pair back with …Qxf6 and active, flexible piece play, pinning White\'s knight first.',
+      weaknesses: 'The queen on f6 can occasionally be exposed to tempo-gaining moves, and Black must know the follow-up plans (…c5, …O-O, …Nd7) precisely.' } },
+  B51: { moves: 'e4 c5 Nf3 d6 Bb5+ Bd7 Bxd7+ Qxd7 O-O Nc6 c3 Nf6 Re1'.split(' '),
+    white: { strengths: 'A simple, low-theory way to avoid the Open Sicilian entirely -- trading the light-squared bishop weakens Black\'s dark squares and control of d5 for a safe, easy-to-learn plan.',
+      weaknesses: 'Giving up the bishop pair voluntarily is a real concession, and the resulting positions offer White limited winning chances against solid defense.' },
+    black: { strengths: 'Very solid and simple to play -- straightforward development with no need for deep Open Sicilian theory, and a safe, hard-to-lose structure.',
+      weaknesses: 'Somewhat passive and drawish -- Black gives up the bishop pair and has few independent winning tries of its own.' } },
+  D85: { moves: 'd4 Nf6 c4 g6 Nc3 d5 cxd5 Nxd5 e4 Nxc3 bxc3 Bg7 Nf3 c5'.split(' '),
+    white: { strengths: 'A massive classical pawn center (d4/e4/c3) that, if it survives Black\'s pressure, gives White a huge long-term space and attacking advantage.',
+      weaknesses: 'The center is also a big target -- Black\'s entire strategy is to prove it is overextended, and a single misstep lets Black\'s pieces flood through with …c5, …Nc6, …Qc7, or …Bg4.' },
+    black: { strengths: 'The classic hypermodern counter-strike: Black lets White build a big center on purpose, then attacks it with pieces (…Bg7, …c5, …Nc6, …Qa5/…Qc7) rather than pawns.',
+      weaknesses: 'Extremely sharp and theory-dependent -- if Black cannot generate enough pressure in time, White\'s center simply rolls forward and Black is worse.' } },
+  B06: { moves: 'e4 g6 d4 Bg7 Nc3 d6 f4 Nf6 Nf3 O-O Bd3 Nc6 O-O'.split(' '),
+    white: { strengths: 'A big, classical center and free, natural development against a hypermodern setup that concedes the center voluntarily.',
+      weaknesses: 'Committing early with f4 can leave light-square and e3 weaknesses that a well-prepared Black player targets with a well-timed …e5 or …c5 break.' },
+    black: { strengths: 'Maximum flexibility -- Black delays committing the central pawns and can strike back later with …c5 or …e5 once White\'s structure is fixed.',
+      weaknesses: 'Passive and space-starved in the early moves; an accurate, aggressive White player can build a dangerous attack before Black\'s counterplay arrives.' } },
+  B07: { moves: 'e4 d6 d4 Nf6 Nc3 c6 Nf3 Bg4 Be2 e6 O-O Be7'.split(' '),
+    white: { strengths: 'A comfortable classical space advantage and free development, with several plans available (f4 expansion, Be3/Qd2, or a slow buildup).',
+      weaknesses: 'Somewhat well-known and non-forcing -- if White plays too slowly, Black\'s flexible setup catches up in development and challenges the center comfortably.' },
+    black: { strengths: 'A resilient, flexible hypermodern setup that avoids early commitments and prepares a timely central break (…d5 or …e5) once development is complete.',
+      weaknesses: 'Passive in the opening phase and slightly cramped -- Black must be patient and precise about when to strike back at the center.' } },
+  B30: { moves: 'e4 c5 Nf3 Nc6 Bb5 g6 O-O Bg7 Re1 Nf6 c3 O-O d4'.split(' '),
+    white: { strengths: 'The Rossolimo sidesteps the massive Open Sicilian theory entirely while still targeting Black\'s dark squares and queenside structure after a well-timed Bxc6.',
+      weaknesses: 'Less sharp and forcing than the Open Sicilian -- White\'s practical winning chances are real but smaller, and a well-prepared Black equalizes comfortably.' },
+    black: { strengths: 'A comfortable fianchetto setup that avoids heavy Najdorf/Sveshnikov-style memorization while still fighting for full equality.',
+      weaknesses: 'If White trades on c6, Black\'s doubled pawns and weakened dark squares can become a long-term structural target.' } },
+  C78: { moves: 'e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O b5 Bb3 Bc5 c3 d6 d4 Bb6'.split(' '),
+    white: { strengths: 'The classical c3/d4 buildup gives White a genuine central and spatial plus, with long-term pressure that can persist deep into the middlegame.',
+      weaknesses: 'Black\'s active …b5/…Bc5 setup gains real queenside space quickly, so White must be precise about timing d4 or risk conceding the initiative.' },
+    black: { strengths: 'A sharp, modern main line where Black gets fast development and real queenside space (…b5, …Bc5) rather than passively defending.',
+      weaknesses: 'Committing the bishop to c5 early can become a target once White plays d4, and Black must know the resulting tactics well.' } },
+  E94: { moves: 'd4 Nf6 c4 g6 Nc3 Bg7 e4 d6 Nf3 O-O Be2 e5 O-O Nc6 d5 Ne7'.split(' '),
+    white: { strengths: 'A huge central space advantage that translates into a clear queenside expansion plan (c5, b4, Nb5/Na4) to attack before Black\'s kingside play lands.',
+      weaknesses: 'Both sides are racing on opposite wings -- if White is even slightly slow, Black\'s classic …f5-f4 kingside pawn storm can be lethal to the white king.' },
+    black: { strengths: 'The classic King\'s Indian kingside pawn storm (…f5, …f4, …g5-g4) gives Black genuine, often decisive attacking chances against White\'s king.',
+      weaknesses: 'Extremely high-risk, opposite-wing-race chess -- if Black\'s attack is a tempo too slow, White\'s queenside play typically arrives first and wins outright.' } },
+  D27: { moves: 'd4 d5 c4 dxc4 Nf3 Nf6 e3 e6 Bxc4 c5 O-O a6 Qe2'.split(' '),
+    white: { strengths: 'Regains the gambit pawn quickly with an actively placed bishop on c4 and a small lead in development, plus a comfortable space edge.',
+      weaknesses: 'Once the pawn is regained there is often little concrete advantage left if Black completes development smoothly and challenges the center with …c5.' },
+    black: { strengths: 'Trades the center pawn for very easy, rapid development and quick queenside expansion (…b5, …Bb7, …c5) -- one of the most solid, well-tested ways to meet 1.d4.',
+      weaknesses: 'Giving up the center voluntarily means Black must follow up accurately (…c5, …b5) or simply end up a tempo down with nothing to show for the pawn given back.' } },
+  B42: { moves: 'e4 c5 Nf3 e6 d4 cxd4 Nxd4 a6 Nc3 Qc7 Be2 Nf6 O-O b5'.split(' '),
+    white: { strengths: 'Free choice of setup (Be2, Bd3, or g3) against a Black structure that commits little early, plus a comfortable space advantage.',
+      weaknesses: 'Because Black is so flexible, White cannot easily aim an attacking plan at a fixed target and must be ready to meet several different Black setups.' },
+    black: { strengths: 'The Kan is extremely flexible -- Black delays committing the knight and king\'s bishop, and gets fast, effective queenside expansion with …b5 and …Bb7.',
+      weaknesses: 'The flexibility comes at the cost of some passivity early on, and Black must know several move-order-dependent structures to avoid falling behind in development.' } },
+};
+
+// OE_* state drives the play/pause board -- OE_CHESS replays SAN moves from
+// scratch up to OE_PLY every time the ply changes (chess.js has no built-in
+// "undo to ply N", so full replay is simpler and cheap at this move-count).
+let OE_CHESS = null;
+let OE_MOVES = [];
+let OE_PLY = 0;
+let OE_TIMER = null;
+
+const OE_PIECE_UNICODE = {
+  p: { w: '♙', b: '♟' }, n: { w: '♘', b: '♞' },
+  b: { w: '♗', b: '♝' }, r: { w: '♖', b: '♜' },
+  q: { w: '♕', b: '♛' }, k: { w: '♔', b: '♚' },
+};
+
+function oeRenderBoard() {
+  const el = document.getElementById('opening-board');
+  if (!OE_CHESS) { el.innerHTML = ''; return; }
+  const board = OE_CHESS.board(); // row 0 = rank 8 (a8..h8) down to row 7 = rank 1
+  let html = '';
+  for (let rank = 0; rank < 8; rank++) {
+    for (let file = 0; file < 8; file++) {
+      const sq = board[rank][file];
+      const isLight = (rank + file) % 2 === 0;
+      const piece = sq ? `<span class="cb-piece ${sq.color === 'w' ? 'white' : 'black'}">${OE_PIECE_UNICODE[sq.type][sq.color]}</span>` : '';
+      html += `<div class="cb-sq ${isLight ? 'light' : 'dark'}">${piece}</div>`;
+    }
+  }
+  el.innerHTML = html;
+}
+
+function oeRenderMoveList() {
+  const box = document.getElementById('oe-moves');
+  let html = '';
+  for (let i = 0; i < OE_MOVES.length; i++) {
+    if (i % 2 === 0) html += `${i / 2 + 1}. `;
+    const cur = i === OE_PLY - 1 ? ' oe-current' : '';
+    html += `<span class="oe-mv${cur}" data-ply="${i + 1}">${escapeHtml(OE_MOVES[i])}</span> `;
+  }
+  box.innerHTML = html;
+  document.getElementById('oe-ply-label').textContent =
+    OE_MOVES.length ? `Move ${OE_PLY} of ${OE_MOVES.length}` : '';
+}
+
+function oeUpdateControls() {
+  document.getElementById('oe-prev').disabled = OE_PLY <= 0;
+  document.getElementById('oe-next').disabled = OE_PLY >= OE_MOVES.length;
+  document.getElementById('oe-reset').disabled = OE_PLY <= 0;
+}
+
+function oeGoToPly(n) {
+  if (!OE_CHESS) return;
+  OE_PLY = Math.max(0, Math.min(n, OE_MOVES.length));
+  OE_CHESS.reset();
+  for (let i = 0; i < OE_PLY; i++) OE_CHESS.move(OE_MOVES[i]);
+  oeRenderBoard();
+  oeRenderMoveList();
+  oeUpdateControls();
+}
+
+function oeStopPlay() {
+  if (OE_TIMER) { clearInterval(OE_TIMER); OE_TIMER = null; }
+  const btn = document.getElementById('oe-play');
+  if (btn) btn.textContent = '▶ Play';
+}
+
+function oeTogglePlay() {
+  if (!OE_CHESS) return;
+  if (OE_TIMER) { oeStopPlay(); return; }
+  if (OE_PLY >= OE_MOVES.length) oeGoToPly(0);
+  document.getElementById('oe-play').textContent = '⏸ Pause';
+  OE_TIMER = setInterval(() => {
+    if (OE_PLY >= OE_MOVES.length) { oeStopPlay(); return; }
+    oeGoToPly(OE_PLY + 1);
+  }, 900);
+}
+
+function oeLoadOpening(eco, name) {
+  oeStopPlay();
+  document.getElementById('opening-explorer-body').style.display = 'block';
+  document.getElementById('oe-title').textContent = name;
+  document.getElementById('oe-eco').textContent = `ECO ${eco}`;
+
+  const wEntry = OPENING_STATS.white.map.get(`${eco}|${name}`);
+  const bEntry = OPENING_STATS.black.map.get(`${eco}|${name}`);
+  const exampleLine = (entry, label) => entry
+    ? `<div><strong>${label}</strong> (${entry.playerCount} tracked player${entry.playerCount === 1 ? '' : 's'}): ${entry.examples.map(e => escapeHtml((e.title ? e.title + ' ' : '') + e.name)).join(', ')}</div>`
+    : '';
+  document.getElementById('oe-examples-white').innerHTML = exampleLine(wEntry, 'As White');
+  document.getElementById('oe-examples-black').innerHTML = exampleLine(bEntry, 'As Black');
+
+  const swBox = document.getElementById('oe-strengths-weaknesses');
+  const book = OPENING_BOOK[eco];
+  if (!book) {
+    OE_CHESS = null;
+    OE_MOVES = [];
+    document.getElementById('opening-board').innerHTML = '';
+    document.getElementById('oe-moves').innerHTML = '<span class="na">No move diagram available yet for this opening.</span>';
+    document.getElementById('oe-ply-label').textContent = '';
+    swBox.innerHTML = '<p class="na">No strengths/weaknesses summary available yet for this opening.</p>';
+    oeUpdateControls();
+    return;
+  }
+  OE_CHESS = new Chess();
+  OE_MOVES = book.moves;
+  swBox.innerHTML = `
+    <h4>For White</h4>
+    <p>${escapeHtml(book.white.strengths)}</p>
+    <p><em>${escapeHtml(book.white.weaknesses)}</em></p>
+    <h4>For Black</h4>
+    <p>${escapeHtml(book.black.strengths)}</p>
+    <p><em>${escapeHtml(book.black.weaknesses)}</em></p>
+  `;
+  oeGoToPly(0);
+}
+
+function oeTopN(stats, n = 20) {
+  return Array.from(stats.map.values())
+    .sort((a, b) => b.playerCount - a.playerCount || a.name.localeCompare(b.name))
+    .slice(0, n);
+}
+
+function populateOpeningExplorerDropdowns() {
+  const wSel = document.getElementById('opening-select-white');
+  const bSel = document.getElementById('opening-select-black');
+  const prevW = wSel.value, prevB = bSel.value;
+  const buildOptions = (entries) => '<option value="">-- choose an opening --</option>' + entries.map(o =>
+    `<option value="${escapeHtml(o.eco)}|${escapeHtml(o.name)}">${escapeHtml(o.eco)} — ${escapeHtml(o.name)} (${o.playerCount})</option>`
+  ).join('');
+  wSel.innerHTML = buildOptions(oeTopN(OPENING_STATS.white));
+  bSel.innerHTML = buildOptions(oeTopN(OPENING_STATS.black));
+  if ([...wSel.options].some(o => o.value === prevW)) wSel.value = prevW;
+  if ([...bSel.options].some(o => o.value === prevB)) bSel.value = prevB;
+
+  document.getElementById('opening-explorer-note').textContent =
+    'Top 20 openings by tracked-player count, same source as the "Most Common Openings" tables above. '
+    + 'Move sequences below are a curated, representative main-line "book" continuation for illustration '
+    + '(2700chess.com does not publish per-game move lists) -- not a specific tracked player\'s actual game.';
+}
+
+// Tournament Sites map/table -- rows come from /api/sites, which already
+// dedupes to one entry per distinct 'site' string with its merged date
+// ranges (see scraper/sites.py) and, where resolved, coordinates from
+// Nominatim/OpenStreetMap (see scraper/geocode.py). A site that failed to
+// geocode still gets a table row (lat/lon null), just no map pin.
+function isGeocoded(r) {
+  return r.lat !== null && r.lat !== undefined && r.lon !== null && r.lon !== undefined;
+}
+
+function formatDateRange(r) {
+  const dateOpts = { month: 'short', day: 'numeric', timeZone: 'UTC' };
+  const start = new Date(r.start + 'T00:00:00Z');
+  const end = new Date(r.end + 'T00:00:00Z');
+  const endStr = end.toLocaleDateString(undefined, { ...dateOpts, year: 'numeric' });
+  if (r.start === r.end) return endStr;
+  const sameYear = start.getUTCFullYear() === end.getUTCFullYear();
+  const startStr = start.toLocaleDateString(undefined, sameYear ? dateOpts : { ...dateOpts, year: 'numeric' });
+  return `${startStr} – ${endStr}`;
+}
+
+// Ranges are already unique per site (scraper/sites.py merges every date
+// seen at that site across all players into non-overlapping ranges before
+// storing) -- sorting here is just presentation, not dedup.
+function formatDateRanges(ranges) {
+  if (!ranges || !ranges.length) return '<span class="na">N/A</span>';
+  return [...ranges].sort((a, b) => a.start.localeCompare(b.start)).map(formatDateRange).join('; ');
+}
+
+let SITES_MAP = null;
+let SITES_MARKERS = [];
+
+function initSitesMap() {
+  if (SITES_MAP || typeof L === 'undefined') return;
+  SITES_MAP = L.map('sites-map', { worldCopyJump: true }).setView([25, 20], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+    maxZoom: 18,
+  }).addTo(SITES_MAP);
+}
+
+function renderSitesMap(rows) {
+  initSitesMap();
+  if (!SITES_MAP) return;
+  SITES_MARKERS.forEach(m => SITES_MAP.removeLayer(m));
+  SITES_MARKERS = [];
+
+  const geocoded = rows.filter(isGeocoded);
+  geocoded.forEach(r => {
+    const marker = L.marker([r.lat, r.lon]).addTo(SITES_MAP);
+    marker.bindTooltip(
+      `<strong>${escapeHtml(r.site)}</strong><br>${formatDateRanges(r.date_ranges)}`,
+      { direction: 'top', sticky: true }
+    );
+    SITES_MARKERS.push(marker);
+  });
+
+  if (geocoded.length) {
+    SITES_MAP.fitBounds(L.latLngBounds(geocoded.map(r => [r.lat, r.lon])).pad(0.15), { maxZoom: 5 });
+  }
+}
+
+function renderSitesTable(rows) {
+  const sorted = [...rows].sort((a, b) => a.site.localeCompare(b.site));
+  document.getElementById('sites-tbody').innerHTML = sorted.map(r => `
+    <tr>
+      <td>${escapeHtml(r.site)}</td>
+      <td class="num">${isGeocoded(r) ? `${r.lat.toFixed(2)}, ${r.lon.toFixed(2)}` : '<span class="na">Not geocoded</span>'}</td>
+      <td>${formatDateRanges(r.date_ranges)}</td>
+    </tr>
+  `).join('');
+}
+
+async function loadSites(meta) {
+  let rows;
+  try {
+    rows = await fetch('data/sites.json').then(r => r.json());
+  } catch {
+    document.getElementById('sites-note').textContent = 'Failed to load tournament sites.';
+    return;
+  }
+  const geocodedCount = rows.filter(isGeocoded).length;
+  document.getElementById('sites-note').textContent =
+    `${rows.length} distinct site${rows.length === 1 ? '' : 's'} in the trailing 12-month window, `
+    + `${geocodedCount} geocoded and shown on the map (${rows.length - geocodedCount} not resolved, `
+    + `still listed in the table below). ${(meta && meta.sites_note) || ''}`;
+  renderSitesMap(rows);
+  renderSitesTable(rows);
+}
+
+document.getElementById('search').addEventListener('input', render);
+document.getElementById('active-only').addEventListener('change', render);
+document.getElementById('hide-low-activity').addEventListener('change', render);
+document.getElementById('women-only').addEventListener('change', render);
+document.getElementById('nat-select').addEventListener('change', render);
+document.getElementById('label-select').addEventListener('change', render);
+
+document.getElementById('opening-select-white').addEventListener('change', function () {
+  if (!this.value) return;
+  document.getElementById('opening-select-black').value = '';
+  const [eco, name] = this.value.split('|');
+  oeLoadOpening(eco, name);
+});
+document.getElementById('opening-select-black').addEventListener('change', function () {
+  if (!this.value) return;
+  document.getElementById('opening-select-white').value = '';
+  const [eco, name] = this.value.split('|');
+  oeLoadOpening(eco, name);
+});
+document.getElementById('oe-play').addEventListener('click', oeTogglePlay);
+document.getElementById('oe-next').addEventListener('click', () => { oeStopPlay(); oeGoToPly(OE_PLY + 1); });
+document.getElementById('oe-prev').addEventListener('click', () => { oeStopPlay(); oeGoToPly(OE_PLY - 1); });
+document.getElementById('oe-reset').addEventListener('click', () => { oeStopPlay(); oeGoToPly(0); });
+document.getElementById('oe-moves').addEventListener('click', (e) => {
+  const target = e.target.closest('.oe-mv');
+  if (!target) return;
+  oeStopPlay();
+  oeGoToPly(parseInt(target.dataset.ply, 10));
+});
+
+setupSort();
+setupNatSort();
+load();
+</script>
+</body>
+</html>
