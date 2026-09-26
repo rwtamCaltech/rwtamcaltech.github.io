@@ -37,7 +37,6 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 
 function fmt(v, m) {
   if (v === null || v === undefined || Number.isNaN(v)) return '';
-  if (m === 'PlayerArenaPoints') return v.toFixed(4).replace(/\.?0+$/, '');
   if (Number.isInteger(v)) return String(v);
   return v.toFixed(2);
 }
@@ -57,8 +56,7 @@ function updatedText(p) {
   return p.scraped ? `Stats updated ${fmtDate(p.scraped)}` : 'Stats from the original Google Sheet (not rescraped yet)';
 }
 function metricCell(m) {
-  const label = LABELS[m] && LABELS[m] !== m ? `<small>${esc(LABELS[m])}</small>` : '';
-  return `<td class="metric" title="${esc(m)}">${esc(m)}${label}</td>`;
+  return `<td class="metric" title="${esc(LABELS[m] || m)}">${esc(m)}</td>`;
 }
 
 // ---- cosine similarity (SORTEDELO rows 71-72) ---------------------------
@@ -97,7 +95,7 @@ function renderAnalyzer(name, manual) {
   // default manual comparison: the highest-ELO player who isn't already on screen
   if (!manual || !byName.has(manual)) manual = D.players.find((x) => x.name !== name && !comps.includes(x.name)).name;
   $('#manual-select').value = manual;
-  $('#manual-sim').textContent = `Similarity to ${name}: ${sims.norm.get(manual).toFixed(3)} normalized · ${sims.raw.get(manual).toFixed(4)} raw cosine`;
+  $('#manual-sim').textContent = `Similarity to ${name}: ${sims.norm.get(manual).toFixed(2)} normalized · ${sims.raw.get(manual).toFixed(4)} raw cosine`;
 
   // rank / count / elite badge
   const rm = D.rankMetric;
@@ -110,7 +108,7 @@ function renderAnalyzer(name, manual) {
   // top 5 playcomps
   $('#a-comps tbody').innerHTML = comps.map((n) => `<tr><td>${byName.get(n).rank ?? ''}</td>
     <td><button class="link" data-player="${esc(n)}">${esc(n)}</button></td>
-    <td class="num" title="raw cosine ${sims.raw.get(n).toFixed(4)}">${sims.norm.get(n).toFixed(3)}</td></tr>`).join('');
+    <td class="num" title="raw cosine ${sims.raw.get(n).toFixed(4)}">${sims.norm.get(n).toFixed(2)}</td></tr>`).join('');
 
   // strengths / weaknesses (TEXTJOIN of columns N / O)
   const strong = [], weak = [];
@@ -130,7 +128,7 @@ function renderAnalyzer(name, manual) {
   const cols = [name, ...comps, manual].map((n) => byName.get(n));
   const head = `<thead><tr><th>metric</th>${cols.map((c, i) => {
     const cls = i === 0 ? 'sel' : i === cols.length - 1 ? 'sep' : '';
-    const sub = i === 0 ? `#${c.rank ?? '–'}` : `#${c.rank ?? '–'} · sim ${sims.norm.get(c.name).toFixed(3)}`;
+    const sub = i === 0 ? `#${c.rank ?? '–'}` : `#${c.rank ?? '–'} · sim ${sims.norm.get(c.name).toFixed(2)}`;
     const nm = i === 0 ? esc(c.name) : `<button class="link" data-player="${esc(c.name)}">${esc(c.name)}</button>`;
     return `<th class="${cls}" title="${esc(updatedText(c))}">${nm}<span class="rk">${i === cols.length - 1 ? 'manual · ' : ''}${sub}</span></th>`;
   }).join('')}<th class="sep">AVE</th><th>STDEV</th></tr></thead>`;
