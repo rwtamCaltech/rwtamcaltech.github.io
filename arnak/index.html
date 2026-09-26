@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arnak Snake Stats</title>
+<meta name="description" content="Lost Ruins of Arnak: 3-player Snake Temple player stats from BoardGameArena">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 3 29 27H3z' fill='%23b7791f'/><path d='M16 11l6 11H10z' fill='%23fff8e6'/></svg>">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 29 27H3z"/><path class="inner" d="M16 11l6 11H10z"/></svg>
+    <div>
+      <h1>Arnak Snake Stats</h1>
+      <p class="sub">Lost Ruins of Arnak · 3-player Snake Temple · last ≤100 games per player on BoardGameArena</p>
+      <p class="updated" id="updated"></p>
+    </div>
+  </div>
+  <nav class="tabs" role="tablist">
+    <a href="#analyzer" data-tab="analyzer" role="tab">Player analyzer</a>
+    <a href="#players" data-tab="players" role="tab">All players</a>
+    <a href="#top3" data-tab="top3" role="tab">Top 3s</a>
+    <a href="#about" data-tab="about" role="tab">Method</a>
+  </nav>
+  <button class="theme" id="theme" type="button" aria-label="Toggle dark mode" title="Toggle theme"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
+</header>
+
+<main>
+  <p id="loading" class="muted">Loading stats…</p>
+
+  <!-- ARNAKPLAYERDROPDOWN -->
+  <section id="tab-analyzer" class="tab" hidden>
+    <div class="picker">
+      <label for="player-select">Select 3-player Snake Arnak player to analyze</label>
+      <div class="combo">
+        <input id="player-select" list="player-list" autocomplete="off" spellcheck="false">
+        <datalist id="player-list"></datalist>
+      </div>
+      <p class="player-updated" id="a-updated"></p>
+      <p class="muted small">See player stats/rank, top 5 comparisons, and strengths and weaknesses in playstyle.</p>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <h3>3PL Snake rank</h3>
+        <div class="big"><span id="a-rank">–</span><span class="of">of <span id="a-count">–</span></span></div>
+        <div id="a-badge"></div>
+        <p class="muted small">Ranked by sos-pt diff aggregate</p>
+      </div>
+      <div class="card">
+        <h3>Top 5 playcomps</h3>
+        <table class="mini" id="a-comps"><thead><tr><th>Rank</th><th>Player</th><th class="num">Sim</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="card wide">
+        <h3>Strengths</h3>
+        <div class="chips good" id="a-strengths"></div>
+        <h3>Weaknesses</h3>
+        <div class="chips bad" id="a-weaknesses"></div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <label>Manual comparison
+        <input id="manual-select" list="player-list" autocomplete="off" spellcheck="false">
+      </label>
+      <span class="muted small" id="manual-sim"></span>
+      <span class="legend"><i class="sw good"></i>&gt; 1 SD above average <i class="sw bad"></i>&lt; 1 SD below</span>
+    </div>
+    <div class="scroll">
+      <table class="grid" id="a-table"></table>
+    </div>
+  </section>
+
+  <!-- SORTEDELO_Arnak_3playerSnake_St -->
+  <section id="tab-players" class="tab" hidden>
+    <div class="toolbar">
+      <label>Sort players by
+        <select id="sort-metric"></select>
+      </label>
+      <label>Filter
+        <input id="filter" type="search" placeholder="Player name…">
+      </label>
+      <span class="muted small" id="players-count"></span>
+      <a class="btn" href="data/arnak_sorted_by_elo.csv" download>Download CSV</a>
+    </div>
+    <div class="scroll tall">
+      <table class="grid wide" id="p-table"></table>
+    </div>
+  </section>
+
+  <!-- TOP3sINARNAKCATS -->
+  <section id="tab-top3" class="tab" hidden>
+    <div class="split">
+      <div class="scroll">
+        <table class="grid list" id="t-table"><thead><tr><th>Metric</th><th>Top three</th><th>Bottom three</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div class="scroll tall">
+        <table class="grid list" id="r-table"><thead><tr><th class="num">Rank</th><th>Top 3-player Snake</th><th class="num">sos-pt</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-about" class="tab prose" hidden>
+    <h2>How this works</h2>
+    <p>Each month a scraper walks every tracked player's finished Arnak games on BoardGameArena, keeps their most recent <b>100 three-player Snake Temple</b> games (or fewer if they have played fewer), and averages BGA's end-of-game statistics over those games.</p>
+    <p id="about-run" class="muted"></p>
+    <h3>Stats</h3>
+    <ul>
+      <li><b>PlayerELO / PlayerArenaPoints</b>: after the player's latest 3-player Snake game (ELO shown minus BGA's 1300 offset).</li>
+      <li><b>AverageOppELO</b>: strength of schedule, the average pre-game ELO of the two opponents.</li>
+      <li><b>First/Second/ThirdPlaceFreq</b>: share of games finished in each place.</li>
+      <li><b>ave_player_score</b>: research + temple + cards + fear + idols + guardians scores. <b>ave_opp_scores</b>: average opponent score.</li>
+      <li><b>differential</b> = ave_player_score − ave_opp_scores.</li>
+      <li><b>overcome/sites discovered</b> = guardians ÷ sites-discovered.</li>
+      <li><b>total resources</b> = (tablets + 2 × arrowheads + 3 × jewels) ÷ 10.</li>
+      <li><b>sos-pt diff aggregate</b> = AverageOppELO<sup>1.5</sup> × differential ÷ 10000 (0 if the differential is negative). This orders the <b>3PL Snake rank</b>.</li>
+    </ul>
+    <h3>Colors, strengths and weaknesses</h3>
+    <p>A value is <span class="pill good">green</span> when it is more than one standard deviation above the average of all tracked players and <span class="pill bad">red</span> when more than one below. The averages change as players are added. Strength and weakness labels come from the same test on selected stats; <b>ELITE PLAYER</b> / <b>SUBPAR PLAYER</b> uses sos-pt diff aggregate. <b>ELITEAVE</b> averages the players whose sos-pt diff aggregate is more than one SD above average.</p>
+    <h3>Play comparisons</h3>
+    <p>Similarity is the cosine similarity of two players' stat vectors (score-research through gained-fear), min–max normalized across all players so 1 is the selected player and 0 is the least similar. Hover a similarity to see the raw cosine value. A near-identical profile can hint at a smurf account; a low top match suggests an unusual playstyle.</p>
+  </section>
+</main>
+<script src="app.js"></script>
+</body>
+</html>
