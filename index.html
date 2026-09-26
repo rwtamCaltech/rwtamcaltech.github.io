@@ -15,6 +15,7 @@ a.card { display:block; background:var(--card); border:1px solid var(--line); bo
 a.card:hover { border-color:var(--accent); }
 a.card b { color:var(--accent); font-size:18px; }
 a.card span { display:block; color:var(--muted); font-size:14px; margin-top:4px; }
+a.card + a.card { margin-top:12px; }
 </style>
 </head>
 <body>
@@ -22,6 +23,7 @@ a.card span { display:block; color:var(--muted); font-size:14px; margin-top:4px;
   <h1>rwtamCaltech</h1>
   <p>Projects</p>
   <a class="card" href="arnak/"><b>Arnak Snake Stats</b><span>Lost Ruins of Arnak 3-player Snake Temple player stats, comparisons and rankings from BoardGameArena, refreshed monthly.</span></a>
+  <a class="card" href="livechessratings/"><b>Live Chess Rating Progression</b><span>Classical rating dashboard for 2700+ FIDE players, scraped daily from 2700chess.com -- rating trends, openings, tournament sites, and a per-nationality breakdown.</span></a>
 </main>
 </body>
 </html>
