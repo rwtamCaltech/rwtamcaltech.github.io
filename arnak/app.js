@@ -223,6 +223,9 @@ async function main() {
   $('#updated').textContent = latest
     ? `Last updated ${latest} · ${fresh} of ${D.players.length} players rescraped from BGA`
     : 'Showing stats from the original Google Sheet export';
+  if (D.minGames) {
+    $('#about-min').textContent = `Players with fewer than ${D.minGames} three-player Snake games are left out of every table, average, ranking and comparison, because their averages are too noisy (${D.hiddenCount} players currently).`;
+  }
   const run = D.lastScrape;
   $('#about-run').textContent = (latest
     ? `Last updated ${latest}: ${fresh} of ${D.players.length} players have freshly scraped stats; the rest still show the original Google Sheet export.`
