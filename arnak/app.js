@@ -221,7 +221,6 @@ function renderNations(code) {
   $('#np-title').textContent = sel ? `${sel.name}: ${sel.players.length} players, best to worst` : 'All players, best to worst';
   $('#np-table tbody').innerHTML = players.map((p, i) => `<tr>
     <td class="num">${p.rank}</td><td>${plink(p)}</td>
-    <td>${p.country ? esc(p.country.name) : ''}</td>
     <td class="num">${fmt(p.v.PlayerELO)}</td>
     <td class="num">${fmt(p.v['3playerSnakegamesPlayed'])}</td>
     <td class="num">${fmt(p.v.FirstPlaceFreq)}</td>
