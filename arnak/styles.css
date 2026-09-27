@@ -142,7 +142,7 @@ table.grid { border-collapse: separate; border-spacing: 0; font-variant-numeric:
 .split { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr); gap: 16px; align-items: start; }
 
 .fi { margin-right: 6px; border-radius: 2px; box-shadow: 0 0 0 1px var(--line); }
-.split.nations { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.split.nations { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); }
 .split > * { min-width: 0; }
 .grid.list button.link, .grid.list td a { white-space: nowrap; }
 .table-title { margin: 0 0 8px; font-size: 14px; }
