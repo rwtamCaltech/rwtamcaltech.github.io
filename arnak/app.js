@@ -28,7 +28,8 @@ const LABELS = {
   'assistant-activated-gold': 'Gold assistants activated', 'exiled': 'Cards exiled', 'gained-fear': 'Fear cards gained',
   'ave_player_score': 'Avg score', 'ave_opp_scores': 'Avg opponent score', 'differential': 'Score differential',
   'overcome/sites discovered': 'Guardians per site discovered', 'total resources': 'Weighted resources',
-  'sos-pt diff aggregate': 'SOS × differential (rank)',
+  'sos-pt diff aggregate': 'SOS × differential',
+  'sos-pt adjusted': 'SOS × differential, boosted for tough schedules (rank)',
 };
 
 let D, byName, names;
@@ -280,6 +281,7 @@ async function main() {
   if (D.minGames) {
     $('#about-min').textContent = `Players with fewer than ${D.minGames} three-player Snake games are left out of every table, average, ranking and comparison, because their averages are too noisy (${D.hiddenCount} players currently).`;
   }
+  if (D.boost) $('#boost-cutoff').textContent = D.boost.cutoff.toFixed(2);
   const run = D.lastScrape;
   $('#about-run').textContent = (latest
     ? `Last updated ${latest}: ${fresh} of ${D.players.length} players have freshly scraped stats; the rest still show the original Google Sheet export.`
