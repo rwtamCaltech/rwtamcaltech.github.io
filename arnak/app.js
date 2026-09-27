@@ -200,6 +200,7 @@ function nationStats() {
     return g;
   });
   list.sort((a, b) => a.avg - b.avg || b.players.length - a.players.length);
+  list.forEach((g, i) => { g.avgPos = i + 1; });
   return list;
 }
 function renderNations(code) {
@@ -207,10 +208,11 @@ function renderNations(code) {
   const sel = list.find((g) => g.code === code);
   $('#nation-select').value = sel ? sel.code : '';
   const unknown = D.players.filter((p) => !p.country).length;
-  $('#nations-note').textContent = `${list.length} countries · ranked by the average 3PL Snake rank of their players`
+  $('#nations-note').textContent = `${list.length} countries · sorted by number of players; Rank = position by the average 3PL Snake rank of their players`
     + (unknown ? ` · ${unknown} players with no country yet` : '');
-  $('#n-table tbody').innerHTML = list.map((g, i) => `<tr class="${sel && g.code === sel.code ? 'picked' : ''}">
-    <td class="num">${i + 1}</td>
+  const byCount = [...list].sort((a, b) => b.players.length - a.players.length || a.avg - b.avg);
+  $('#n-table tbody').innerHTML = byCount.map((g) => `<tr class="${sel && g.code === sel.code ? 'picked' : ''}">
+    <td class="num">${g.avgPos}</td>
     <td><a href="#nations/${esc(g.code)}">${flag(g.best)}${esc(g.name)}</a></td>
     <td class="num">${g.players.length}</td>
     <td class="num">${g.avg.toFixed(2)}</td>

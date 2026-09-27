@@ -114,7 +114,7 @@
     </div>
     <div class="split nations">
       <div class="scroll tall">
-        <table class="grid list" id="n-table"><thead><tr><th class="num">Rank</th><th>Country</th><th class="num">Players</th><th class="num">Avg rank</th><th>Best player</th></tr></thead><tbody></tbody></table>
+        <table class="grid list" id="n-table"><thead><tr><th class="num" title="Position by average rank">Rank</th><th>Country</th><th class="num">Players &#9660;</th><th class="num">Avg rank</th><th>Best player</th></tr></thead><tbody></tbody></table>
       </div>
       <div>
         <h3 class="table-title" id="np-title"></h3>
@@ -144,7 +144,7 @@
     <h3>Colors, strengths and weaknesses</h3>
     <p>A value is <span class="pill good">green</span> when it is more than one standard deviation above the average of all tracked players and <span class="pill bad">red</span> when more than one below. The averages change as players are added. Strength and weakness labels come from the same test on selected stats; <b>ELITE PLAYER</b> / <b>SUBPAR PLAYER</b> uses sos-pt diff aggregate. <b>ELITEAVE</b> averages the players whose sos-pt diff aggregate is more than one SD above average.</p>
     <h3>Nationalities</h3>
-    <p>Each player's country is the one shown on their BoardGameArena profile. Countries are ranked by the average 3PL Snake rank of their players (lower is better), with the player count and each country's best player alongside, so a country with one strong player can rank above a large country with many mid-ranked players.</p>
+    <p>Each player's country is the one shown on their BoardGameArena profile. The country table is sorted by number of players. Its Rank column ranks countries by the average 3PL Snake rank of their players (lower is better), so a country with one strong player can rank above a large country with many mid-ranked players. Each country's best player is listed alongside.</p>
     <h3>Play comparisons</h3>
     <p>Similarity is the cosine similarity of two players' stat vectors (score-research through gained-fear), min–max normalized across all players so 1 is the selected player and 0 is the least similar. Hover a similarity to see the raw cosine value. A near-identical profile can hint at a smurf account; a low top match suggests an unusual playstyle.</p>
   </section>
