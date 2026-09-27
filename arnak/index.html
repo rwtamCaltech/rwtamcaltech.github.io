@@ -6,6 +6,7 @@
 <title>Arnak Snake Stats</title>
 <meta name="description" content="Lost Ruins of Arnak: 3-player Snake Temple player stats from BoardGameArena">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M16 3 29 27H3z' fill='%23b7791f'/><path d='M16 11l6 11H10z' fill='%23fff8e6'/></svg>">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flag-icons@7.2.3/css/flag-icons.min.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -22,6 +23,7 @@
     <a href="#analyzer" data-tab="analyzer" role="tab">Player analyzer</a>
     <a href="#players" data-tab="players" role="tab">All players</a>
     <a href="#top3" data-tab="top3" role="tab">Top 3s</a>
+    <a href="#nations" data-tab="nations" role="tab">Nationalities</a>
     <a href="#about" data-tab="about" role="tab">Method</a>
   </nav>
   <button class="theme" id="theme" type="button" aria-label="Toggle dark mode" title="Toggle theme"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
@@ -102,6 +104,27 @@
     </div>
   </section>
 
+ <!-- Nationalities -->
+  <section id="tab-nations" class="tab" hidden>
+    <div class="toolbar">
+      <label>Country
+        <select id="nation-select"></select>
+      </label>
+      <span class="muted small" id="nations-note"></span>
+    </div>
+    <div class="split nations">
+      <div class="scroll tall">
+        <table class="grid list" id="n-table"><thead><tr><th class="num">Rank</th><th>Country</th><th class="num">Players</th><th class="num">Avg rank</th><th>Best player</th></tr></thead><tbody></tbody></table>
+      </div>
+      <div>
+        <h3 class="table-title" id="np-title"></h3>
+        <div class="scroll tall">
+          <table class="grid list" id="np-table"><thead><tr><th class="num">Rank</th><th>Player</th><th>Country</th><th class="num">ELO</th><th class="num">Games</th><th class="num">1st place</th><th class="num">sos-pt</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="tab-about" class="tab prose" hidden>
     <h2>How this works</h2>
     <p>Each month a scraper walks every tracked player's finished Arnak games on BoardGameArena, keeps their most recent <b>100 three-player Snake Temple</b> games (or fewer if they have played fewer), and averages BGA's end-of-game statistics over those games.</p>
@@ -120,6 +143,8 @@
     </ul>
     <h3>Colors, strengths and weaknesses</h3>
     <p>A value is <span class="pill good">green</span> when it is more than one standard deviation above the average of all tracked players and <span class="pill bad">red</span> when more than one below. The averages change as players are added. Strength and weakness labels come from the same test on selected stats; <b>ELITE PLAYER</b> / <b>SUBPAR PLAYER</b> uses sos-pt diff aggregate. <b>ELITEAVE</b> averages the players whose sos-pt diff aggregate is more than one SD above average.</p>
+    <h3>Nationalities</h3>
+    <p>Each player's country is the one shown on their BoardGameArena profile. Countries are ranked by the average 3PL Snake rank of their players (lower is better), with the player count and each country's best player alongside, so a country with one strong player can rank above a large country with many mid-ranked players.</p>
     <h3>Play comparisons</h3>
     <p>Similarity is the cosine similarity of two players' stat vectors (score-research through gained-fear), min–max normalized across all players so 1 is the selected player and 0 is the least similar. Hover a similarity to see the raw cosine value. A near-identical profile can hint at a smurf account; a low top match suggests an unusual playstyle.</p>
   </section>

@@ -59,6 +59,15 @@ function metricCell(m) {
   return `<td class="metric" title="${esc(LABELS[m] || m)}">${esc(m)}</td>`;
 }
 
+// flags come from the flag-icons stylesheet (ISO 3166 codes, lowercase)
+function flag(p) {
+  const c = p.country;
+  return c && /^[A-Za-z]{2}$/.test(c.code) ? `<span class="fi fi-${c.code.toLowerCase()}" title="${esc(c.name)}"></span>` : '';
+}
+function plink(p) {
+  return `<button class="link" data-player="${esc(p.name)}">${flag(p)}${esc(p.name)}</button>`;
+}
+
 // ---- cosine similarity (SORTEDELO rows 71-72) ---------------------------
 function similarities(name) {
   const vec = (p) => D.cosineMetrics.map((m) => p.v[m] ?? 0);
@@ -90,6 +99,7 @@ function renderAnalyzer(name, manual) {
     : p.scraped
     ? `Stats last updated <b>${fmtDate(p.scraped)}</b> · based on ${games ?? '?'} three-player Snake games`
     : `Stats from the original Google Sheet export · not rescraped yet (${games ?? '?'} games)`;
+  if (p.country) au.innerHTML += ` · ${flag(p)}${esc(p.country.name)}`;
   const sims = similarities(name);
   const comps = [...sims.norm].filter(([n]) => n !== name).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n]) => n);
   // default manual comparison: the highest-ELO player who isn't already on screen
@@ -107,7 +117,7 @@ function renderAnalyzer(name, manual) {
 
   // top 5 playcomps
   $('#a-comps tbody').innerHTML = comps.map((n) => `<tr><td>${byName.get(n).rank ?? ''}</td>
-    <td><button class="link" data-player="${esc(n)}">${esc(n)}</button></td>
+    <td>${plink(byName.get(n))}</td>
     <td class="num" title="raw cosine ${sims.raw.get(n).toFixed(4)}">${sims.norm.get(n).toFixed(2)}</td></tr>`).join('');
 
   // strengths / weaknesses (TEXTJOIN of columns N / O)
@@ -129,7 +139,7 @@ function renderAnalyzer(name, manual) {
   const head = `<thead><tr><th>metric</th>${cols.map((c, i) => {
     const cls = i === 0 ? 'sel' : i === cols.length - 1 ? 'sep' : '';
     const sub = i === 0 ? `#${c.rank ?? '–'}` : `#${c.rank ?? '–'} · sim ${sims.norm.get(c.name).toFixed(2)}`;
-    const nm = i === 0 ? esc(c.name) : `<button class="link" data-player="${esc(c.name)}">${esc(c.name)}</button>`;
+    const nm = i === 0 ? `${flag(c)}${esc(c.name)}` : plink(c);
     return `<th class="${cls}" title="${esc(updatedText(c))}">${nm}<span class="rk">${i === cols.length - 1 ? 'manual · ' : ''}${sub}</span></th>`;
   }).join('')}<th class="sep">AVE</th><th>STDEV</th></tr></thead>`;
   const body = D.metrics.map((m) => `<tr class="${D.derived.includes(m) ? 'derived' : ''}">${metricCell(m)}${
@@ -147,7 +157,7 @@ function renderPlayers() {
     .sort((a, b) => (b.v[m0] ?? -Infinity) - (a.v[m0] ?? -Infinity));
   $('#players-count').textContent = `${list.length} of ${D.players.length} players · ${D.eliteCount} elite`;
   const head = `<thead><tr><th>metric</th><th>ELITEAVE</th><th>AVERAGES</th><th>STDEV</th>${
-    list.map((p, i) => `<th class="${i === 0 ? 'sep' : ''}" title="${esc(updatedText(p))}"><button class="link" data-player="${esc(p.name)}">${esc(p.name)}</button><span class="rk">#${p.rank ?? '–'}${p.status === 'not_found' ? ' · not on BGA' : ''}</span></th>`).join('')
+    list.map((p, i) => `<th class="${i === 0 ? 'sep' : ''}" title="${esc(updatedText(p))}">${plink(p)}<span class="rk">#${p.rank ?? '–'}${p.status === 'not_found' ? ' · not on BGA' : ''}</span></th>`).join('')
   }</tr></thead>`;
   const body = D.metrics.map((m) => {
     const fm = m === 'PlayerArenaPoints' ? m : '';
@@ -162,7 +172,7 @@ function renderPlayers() {
 
 // ---- Top 3s (TOP3sINARNAKCATS) --------------------------------------------
 function renderTop3() {
-  const pair = (p, m) => `<button class="link" data-player="${esc(p.name)}">${esc(p.name)}</button>: ${fmt(p.v[m], m)}`;
+  const pair = (p, m) => `${plink(p)}: ${fmt(p.v[m], m)}`;
   $('#t-table tbody').innerHTML = D.top3Metrics.map((m) => {
     const have = D.players.filter((p) => p.v[m] !== null && p.v[m] !== undefined);
     const top = [...have].sort((a, b) => b.v[m] - a.v[m]).slice(0, 3);
@@ -171,19 +181,62 @@ function renderTop3() {
   }).join('');
   const rm = D.rankMetric;
   $('#r-table tbody').innerHTML = D.players.filter((p) => p.rank).sort((a, b) => a.rank - b.rank)
-    .map((p) => `<tr><td class="num">${p.rank}</td><td><button class="link" data-player="${esc(p.name)}">${esc(p.name)}</button></td><td class="num">${fmt(p.v[rm], rm)}</td></tr>`).join('');
+    .map((p) => `<tr><td class="num">${p.rank}</td><td>${plink(p)}</td><td class="num">${fmt(p.v[rm], rm)}</td></tr>`).join('');
+}
+
+// ---- Nationalities ------------------------------------------------------------
+function nationStats() {
+  const groups = new Map();
+  for (const p of D.players) {
+    if (!p.country || !p.rank) continue;
+    const g = groups.get(p.country.code) || { code: p.country.code, name: p.country.name, players: [] };
+    g.players.push(p);
+    groups.set(g.code, g);
+  }
+  const list = [...groups.values()].map((g) => {
+    g.players.sort((a, b) => a.rank - b.rank);
+    g.avg = g.players.reduce((s, p) => s + p.rank, 0) / g.players.length;
+    g.best = g.players[0];
+    return g;
+  });
+  list.sort((a, b) => a.avg - b.avg || b.players.length - a.players.length);
+  return list;
+}
+function renderNations(code) {
+  const list = nationStats();
+  const sel = list.find((g) => g.code === code);
+  $('#nation-select').value = sel ? sel.code : '';
+  const unknown = D.players.filter((p) => !p.country).length;
+  $('#nations-note').textContent = `${list.length} countries · ranked by the average 3PL Snake rank of their players`
+    + (unknown ? ` · ${unknown} players with no country yet` : '');
+  $('#n-table tbody').innerHTML = list.map((g, i) => `<tr class="${sel && g.code === sel.code ? 'picked' : ''}">
+    <td class="num">${i + 1}</td>
+    <td><a href="#nations/${esc(g.code)}">${flag(g.best)}${esc(g.name)}</a></td>
+    <td class="num">${g.players.length}</td>
+    <td class="num">${g.avg.toFixed(2)}</td>
+    <td>${plink(g.best)} <span class="muted">#${g.best.rank}</span></td></tr>`).join('');
+  const players = sel ? sel.players : D.players.filter((p) => p.rank).sort((a, b) => a.rank - b.rank);
+  $('#np-title').textContent = sel ? `${sel.name}: ${sel.players.length} players, best to worst` : 'All players, best to worst';
+  $('#np-table tbody').innerHTML = players.map((p, i) => `<tr>
+    <td class="num">${p.rank}</td><td>${plink(p)}</td>
+    <td>${p.country ? esc(p.country.name) : ''}</td>
+    <td class="num">${fmt(p.v.PlayerELO)}</td>
+    <td class="num">${fmt(p.v['3playerSnakegamesPlayed'])}</td>
+    <td class="num">${fmt(p.v.FirstPlaceFreq)}</td>
+    <td class="num">${fmt(p.v[D.rankMetric])}</td></tr>`).join('');
 }
 
 // ---- routing ----------------------------------------------------------------
 function route() {
   const [tab = 'analyzer', a, b] = location.hash.slice(1).split('/').map(decodeURIComponent);
-  const t = ['analyzer', 'players', 'top3', 'about'].includes(tab) ? tab : 'analyzer';
+  const t = ['analyzer', 'players', 'top3', 'nations', 'about'].includes(tab) ? tab : 'analyzer';
   document.querySelectorAll('.tab').forEach((s) => { s.hidden = s.id !== `tab-${t}`; });
   document.querySelectorAll('.tabs a').forEach((l) => l.setAttribute('aria-selected', String(l.dataset.tab === t)));
   if (t === 'analyzer') {
     const def = byName.has('oHeyKong') ? 'oHeyKong' : D.players[0].name;
     renderAnalyzer(byName.has(a) ? a : def, b);
   }
+  if (t === 'nations') renderNations(a);
 }
 function go(name, manual) {
   location.hash = ['analyzer', name, manual].filter(Boolean).map(encodeURIComponent).join('/');
@@ -241,6 +294,10 @@ async function main() {
     $(id).addEventListener('blur', (e) => { if (!byName.has(e.target.value)) e.target.value = e.target.dataset.prev || ''; });
   }
   $('#sort-metric').addEventListener('change', (e) => { playersState.metric = e.target.value; renderPlayers(); });
+  $('#nation-select').innerHTML = '<option value="">All countries</option>' + nationStats()
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((g) => `<option value="${esc(g.code)}">${esc(g.name)} (${g.players.length})</option>`).join('');
+  $('#nation-select').addEventListener('change', (e) => { location.hash = e.target.value ? `nations/${e.target.value}` : 'nations'; });
   $('#filter').addEventListener('input', (e) => { playersState.filter = e.target.value; renderPlayers(); });
   document.addEventListener('click', (e) => {
     const b = e.target.closest('[data-player]');

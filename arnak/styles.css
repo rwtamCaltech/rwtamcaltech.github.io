@@ -141,6 +141,13 @@ table.grid { border-collapse: separate; border-spacing: 0; font-variant-numeric:
 
 .split { display: grid; grid-template-columns: minmax(0, 2.2fr) minmax(260px, 1fr); gap: 16px; align-items: start; }
 
+.fi { margin-right: 6px; border-radius: 2px; box-shadow: 0 0 0 1px var(--line); }
+.split.nations { grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); }
+.table-title { margin: 0 0 8px; font-size: 14px; }
+.grid tr.picked td { background: var(--surface-2); font-weight: 650; }
+.grid.list td a { color: var(--accent-ink); font-weight: 600; text-decoration: none; }
+.grid.list td a:hover { text-decoration: underline; }
+
 .prose { max-width: 760px; }
 .prose h2 { margin-top: 0; }
 .prose li { margin: 4px 0; }
@@ -148,7 +155,7 @@ table.grid { border-collapse: separate; border-spacing: 0; font-variant-numeric:
 @media (max-width: 900px) {
   .cards { grid-template-columns: 1fr 1fr; }
   .card.wide { grid-column: 1 / -1; }
-  .split { grid-template-columns: 1fr; }
+  .split, .split.nations { grid-template-columns: 1fr; }
   .legend { margin-left: 0; }
 }
 @media (max-width: 560px) {
