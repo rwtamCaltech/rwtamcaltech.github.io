@@ -101,6 +101,7 @@ function renderAnalyzer(name, manual) {
     ? `Stats last updated <b>${fmtDate(p.scraped)}</b> · based on ${games ?? '?'} three-player Snake games`
     : `Stats from the original Google Sheet export · not rescraped yet (${games ?? '?'} games)`;
   if (p.country) au.innerHTML += ` · ${flag(p)}${esc(p.country.name)}`;
+  au.innerHTML += `<br>Last 3-player Snake game: <b>${p.lastGame ? fmtDate(p.lastGame) : 'unknown'}</b>`;
   const sims = similarities(name);
   const comps = [...sims.norm].filter(([n]) => n !== name).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([n]) => n);
   // default manual comparison: the highest-ELO player who isn't already on screen
