@@ -73,14 +73,14 @@ function renderGMs() {
       <tbody>${rows.map((g, i) => `
         <tr class="link" data-href="#gm/${g.team}">
           <td class="rank">${i + 1}</td>
-          <td class="name"><a href="#gm/${g.team}">${esc(g.name)}</a><div class="small muted">${esc(g.team_name)}</div></td>
+          <td class="name"><a href="#gm/${g.team}">${esc(g.name)}</a><div class="small muted">${esc(g.team_name)}${g.seasons < 3 ? ` · ${g.seasons} seasons` : ''}</div></td>
           <td class="hide-sm"><span class="team-tag">${g.team}</span></td>
           <td class="num hide-sm">${monthYear(g.start_date)}${g.clipped ? '†' : ''}</td>
           <td class="num hide-sm">${g.scores.overall.count}</td>
           ${MAIN_COLS.map(([k]) => scoreCell(g.scores[k], metric)).join('')}
         </tr>`).join('')}</tbody>
     </table></div>
-    <p class="small muted">† Tenure began before ${seasonLabel(S.first_season)}; only moves from then on are counted. Ratings compare each score per season with the other GMs. Hover a score for its rank.</p>`;
+    <p class="small muted">† Tenure began before ${seasonLabel(S.first_season)}; only moves from then on are counted. Per-season scores mix in 3 seasons of league-average performance, so GMs with short tenures are pulled toward average until they build a record. Ratings compare each score per season with the other GMs. Hover a score for its rank.</p>`;
   bindMetric(view, renderGMs);
   view.querySelectorAll('[data-sort]').forEach(th => th.addEventListener('click', () => { state.sortKey = th.dataset.sort; save(); renderGMs(); }));
   bindRowLinks(view);
@@ -273,7 +273,8 @@ function styleSection(d) {
       <div class="tile"><div class="k">Strengths</div><div class="small">${st.strengths.length ? list(st.strengths) : '<span class="muted">none in the top third of GMs</span>'}</div></div>
       <div class="tile"><div class="k">Weaknesses</div><div class="small">${st.weaknesses.length ? list(st.weaknesses) : '<span class="muted">none in the bottom third of GMs</span>'}</div></div>
       <div class="tile"><div class="k">Overall level</div><div class="v">#${st.level_rank} / ${of}</div><div class="small muted">average z ${st.level >= 0 ? '+' : ''}${st.level}</div></div>
-      <div class="tile"><div class="k">Roster balance</div><div class="v">#${st.balance_rank} / ${of}</div><div class="small muted">spread ${st.spread} (lower = more balanced)</div></div>
+      <div class="tile"><div class="k">Roster balance</div><div class="v">#${st.balance_rank} / ${of}</div><div class="small muted">avg shortfall ${st.shortfall} (0 = no weak spots)</div></div>
+      <div class="tile"><div class="k">Specialization</div><div class="v">${st.spread >= 0.8 ? 'Specialist' : st.spread >= 0.5 ? 'Mixed' : 'Generalist'}</div><div class="small muted">spread ${st.spread} · #${st.spec_rank} most specialized</div></div>
     </div>
     <div class="table-wrap"><table class="style-table"><thead>${head}</thead><tbody>${rows}${avg}${gmr}</tbody></table></div>`;
 }
