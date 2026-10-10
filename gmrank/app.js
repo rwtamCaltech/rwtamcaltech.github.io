@@ -245,6 +245,39 @@ function bindMoves(view, items) {
   draw();
 }
 
+/* ---------- roster profile (value set) ---------- */
+const zClass = z => z >= 1 ? 'z-vg' : z >= 0.35 ? 'z-g' : z > -0.35 ? 'z-ok' : z > -1 ? 'z-b' : 'z-vb';
+function fmtMetric(key, v) {
+  if (v == null) return '–';
+  if (['ts', 'reb', 'ast', 'blk', '3par'].includes(key)) return (v * 100).toFixed(1) + '%';
+  if (key === 'tov') return v.toFixed(1) + '%';
+  if (key === 'stl') return v.toFixed(1);
+  return v.toFixed(3);
+}
+
+function styleSection(d) {
+  const st = d.style, M = S.style_metrics;
+  if (!st || !st.seasons || !st.seasons.length) {
+    return `<h3>Roster profile</h3><p class="small muted">No completed season under this GM yet; the profile appears after their first full season.</p>`;
+  }
+  const of = st.ranked_of;
+  const list = xs => xs.map(x => `<b>${esc(x.noun)}</b> <span class="muted">(#${x.gm_rank}/${of})</span>`).join(', ');
+  const head = `<tr><th>Season</th>${M.map(m => `<th class="num" title="${m.higher_better ? 'Higher is better' : 'Lower is better'}">${esc(m.label)}</th>`).join('')}</tr>`;
+  const cell = (key, c) => c ? `<td class="num ${zClass(c.z)}" title="z ${c.z >= 0 ? '+' : ''}${c.z} vs league that season">${fmtMetric(key, c.v)}<div class="rk">#${c.rank}</div></td>` : '<td class="num">–</td>';
+  const rows = [...st.seasons].reverse().map(r => `<tr><td class="nowrap">${seasonLabel(r.season)}${r.record && r.record[0] != null ? `<div class="rk">${r.record[0]}-${r.record[1]}</div>` : ''}</td>${M.map(m => cell(m.key, r.metrics[m.key])).join('')}</tr>`).join('');
+  const avg = `<tr class="sum"><td>Average</td>${M.map(m => { const a = st.avg[m.key]; return a ? `<td class="num ${zClass(a.z)}">${a.z >= 0 ? '+' : ''}${a.z.toFixed(2)}<div class="rk">avg rank ${a.rank_avg}</div></td>` : '<td></td>'; }).join('')}</tr>`;
+  const gmr = `<tr class="sum"><td>Rank among GMs</td>${M.map(m => { const a = st.avg[m.key]; return a ? `<td class="num strong">${a.gm_rank} / ${a.of}</td>` : '<td></td>'; }).join('')}</tr>`;
+  return `<h3>Roster profile (value set)</h3>
+    <p class="lede">What this GM's teams were good and bad at, season by season (${st.seasons.length} completed season${st.seasons.length > 1 ? 's' : ''} in charge). Each cell is the team's rate and its league rank that season; colors compare it with the other 29 teams that year (z-score; for turnovers and points allowed, lower is better), so different eras are comparable.</p>
+    <div class="stat-tiles" style="margin-bottom:12px">
+      <div class="tile"><div class="k">Strengths</div><div class="small">${st.strengths.length ? list(st.strengths) : '<span class="muted">none in the top third of GMs</span>'}</div></div>
+      <div class="tile"><div class="k">Weaknesses</div><div class="small">${st.weaknesses.length ? list(st.weaknesses) : '<span class="muted">none in the bottom third of GMs</span>'}</div></div>
+      <div class="tile"><div class="k">Overall level</div><div class="v">#${st.level_rank} / ${of}</div><div class="small muted">average z ${st.level >= 0 ? '+' : ''}${st.level}</div></div>
+      <div class="tile"><div class="k">Roster balance</div><div class="v">#${st.balance_rank} / ${of}</div><div class="small muted">spread ${st.spread} (lower = more balanced)</div></div>
+    </div>
+    <div class="table-wrap"><table class="style-table"><thead>${head}</thead><tbody>${rows}${avg}${gmr}</tbody></table></div>`;
+}
+
 async function renderGM(team) {
   const view = $('#view');
   const d = await getJSON(`data/gm/${team}.json`);
@@ -260,6 +293,7 @@ async function renderGM(team) {
       </div></div>
     <div class="toolbar">${initialToggle()}<span class="small muted">Off: only resolved scores (what actually happened; unfinished parts use the day-of estimate).</span></div>
     <h3>Scores by category</h3>${categoryTable(sc)}
+    ${styleSection(d)}
     <h3>Best and worst moves</h3>${bestWorst(d)}
     ${movesSection(d.items)}`;
   bindMoves(view, d.items);

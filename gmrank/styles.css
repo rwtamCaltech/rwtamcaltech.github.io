@@ -150,3 +150,14 @@ details.move > summary { list-style: none; cursor: pointer; }
 #view:not(.hide-initial) .res-only { display: none; }
 .toggle { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; font-weight: 600; color: var(--ink); }
 #view.hide-initial td .dim { opacity: 1; color: inherit; font-weight: 750; }
+
+/* roster profile */
+.style-table td, .style-table th { padding: 6px 8px; font-size: 13px; }
+.style-table .rk { font-size: 11px; color: var(--muted); font-weight: 500; }
+.style-table tr.sum td { border-top: 2px solid var(--line); font-weight: 650; }
+.nowrap { white-space: nowrap; }
+.z-vg { background: var(--g-bg); color: var(--g-ink); box-shadow: inset 3px 0 0 var(--vg-bg); }
+.z-g  { background: color-mix(in srgb, var(--g-bg) 55%, transparent); }
+.z-b  { background: color-mix(in srgb, var(--b-bg) 55%, transparent); }
+.z-vb { background: var(--b-bg); color: var(--b-ink); box-shadow: inset 3px 0 0 var(--vb-bg); }
+.z-vg .rk, .z-vb .rk { color: inherit; opacity: .8; }
