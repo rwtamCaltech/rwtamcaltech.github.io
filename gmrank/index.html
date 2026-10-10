@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NBA GM Rank</title>
+<meta name="description" content="Every current NBA general manager and team rated on drafts, signings, players let go and trades">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='%23d9622b'/><path d='M3 16h26M16 3v26M7 6c5 5 5 15 0 20M25 6c-5 5-5 15 0 20' stroke='%231f1a17' stroke-width='1.6' fill='none'/></svg>">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#gms">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13"/><path class="seam" d="M3 16h26M16 3v26M7 6c5 5 5 15 0 20M25 6c-5 5-5 15 0 20"/></svg>
+    <div>
+      <h1>NBA GM Rank</h1>
+      <p class="sub">Every current front office, rated on drafts, signings, players let go and trades</p>
+      <p class="updated" id="updated"></p>
+    </div>
+  </a>
+  <nav class="tabs">
+    <a href="#gms" data-tab="gms">General managers</a>
+    <a href="#teams" data-tab="teams">Teams</a>
+    <a href="#method" data-tab="method">Method</a>
+  </nav>
+  <button class="theme" id="theme" type="button" aria-label="Toggle dark mode" title="Toggle theme"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
+</header>
+
+<main id="main">
+  <p id="loading" class="muted">Loading…</p>
+  <section id="view" hidden></section>
+</main>
+
+<template id="method-tpl">
+  <div class="prose">
+    <h2>How the scores work</h2>
+    <p>Every move is valued in one currency: <b>surplus value in % of the salary cap × seasons</b>. A player who produced like a 20%-of-cap player while being paid 8% of the cap for two seasons is worth <b>+24</b>. Using % of each season's cap makes 2010 and 2026 moves comparable.</p>
+
+    <h3>Production → fair salary</h3>
+    <p>Each season, every player gets a production value that blends three all-in-one metrics, each divided by its league-wide spread that season:</p>
+    <ul>
+      <li><b>VORP</b> (Box Plus/Minus based) and <b>Win Shares</b>, from Basketball-Reference;</li>
+      <li><b>EPM</b> (Estimated Plus-Minus) from DunksAndThrees, as (EPM + 2) × minutes ÷ 3936, the VORP formula on EPM. DunksAndThrees only publishes the latest completed season for free, so EPM is blended in for <span id="epm-seasons"></span> and more seasons are added as they are published.</li>
+    </ul>
+    <p>Production becomes a <b>fair salary</b> by quantile matching: the player with the k-th percentile production that season is "worth" the k-th percentile salary that season. <b>Production before a move</b> is the last three completed seasons' fair salary weighted 50/30/20 (recency bias). <b>Injury years count less</b>: each season's weight is scaled by the minutes played that season relative to the player's busiest of the three, so a 5-game season next to two full ones carries about a tenth of its usual weight, while a player with a steady role keeps the plain 50/30/20. Only seasons completed before the move are used, so initial scores never peek at the future.</p>
+
+    <h3>Draft score</h3>
+    <p>Every draft class is <b>re-ranked</b> by career value to date (the sum of each season's fair salary), including undrafted players whose first NBA season followed that draft (their draft position is class size + 1, i.e. 61). Score = 10 × (ln(pick) − ln(re-rank)): pick 30 who re-ranks 5th = +17.9, pick 3 who re-ranks 30th = −23.0. <b>Lottery picks (1–15) who became a top-10 player of their class get a bonus</b> (4 + 0.8 × (10 − re-rank)), so the #1 pick who became the best player of the class counts as a steal, not just "as expected". Classes with fewer than 3 seasons played are scaled down (one season = ⅓). Undrafted finds are credited to the team they first played for, and only when they turned out well. Draft-night trades credit the team that ended up with the player. Drafts belong to the executive in charge for the following season.</p>
+
+    <h3>Signing score (free agents, re-signings, extensions, waiver claims)</h3>
+    <p><b>Initial</b> = (fair salary before the signing − average annual salary as % of cap) × years. <b>Bad multi-year deals are compounded</b>: × (1 + 0.12 per extra year), so a 4-year overpay hurts more than four 1-year overpays. Contract length and AAV come from the player's salary seasons until his next contract. Two-way, Exhibit 10 and 10-day deals are left out.</p>
+    <p><b>Resolved</b> = what the player actually produced for this team in each contract season, minus what he was paid, pro-rated by the share of his minutes played there. A season on the payroll without playing counts as zero production. Contract years not played yet are filled in with the initial estimate.</p>
+
+    <h3>Let-go score (waived, or lost in free agency)</h3>
+    <p>When a player leaves (waived, or his contract ends and he signs elsewhere) and signs a new deal within a year, the team is charged with the bargain it let walk: <b>initial</b> = −(his fair salary before leaving − his new AAV) × years (up to 3, compounded). If the new team overpays him, the team gets half that overpay as a credit for letting him go. <b>Resolved</b> uses what he actually produced for the new team, relative to the new salary, over up to 3 seasons. (Example: a player waived and claimed by another team who plays well for that team on his small salary counts against the team that waived him.) Traded players are judged in the trade score, not here.</p>
+
+    <h3>Trade score</h3>
+    <p><b>Initial</b>, from each team's side: every incoming player is worth (fair salary before the trade − his salary) × years left on his contract (the current season pro-rated by how much is left). Outgoing players count the other way, so dumping a bad contract is a plus. <b>A bad contract that is expiring</b> (or has only a team option left) is halved, and one with a single year left is cut by a quarter. Draft picks are worth the average rookie-contract surplus of that draft slot, measured from the drafts in the data. The expected slot comes from the original owner's record (future picks drift toward the middle, uncertainty grows each year out), protections ("top-N protected") remove the protected slots, and swaps count a quarter.</p>
+    <p><b>Resolved</b>: incoming players count only for the time they actually played for the team (a player who leaves after half a season only earns half a season of credit, while the price paid counts in full). Outgoing players are followed for 3 seasons on the contract they were traded with; if they play well elsewhere, the team that traded them is docked. Picks are judged by the player they became, over his rookie contract, and count only if he became a <b>role player or better</b> (a fair salary at or above the league median for 1,000-minute players). Then the receiver gets the plus and the team that traded the pick takes the same minus. Picks not used yet keep their initial value.</p>
+    <p>A trade is <b>resolved</b> once 70% of its pieces have played out; then the resolved score is the headline and the initial score is shown in grey.</p>
+
+    <h3>Labels</h3>
+    <p>Each move: <span class="pill VERY_GOOD">VERY GOOD</span> ≥ +15 · <span class="pill GOOD">GOOD</span> ≥ +5 (a STEAL) · <span class="pill OK">OK</span> · <span class="pill BAD">BAD</span> ≤ −5 · <span class="pill VERY_BAD">VERY BAD</span> ≤ −15.<br>GM and team category ratings compare each score per season against the other 29 front offices: ≥ +1 SD very good, ≥ +0.35 SD good, within ±0.35 SD OK, and so on.</p>
+
+    <h3>GMs, tenure and teams</h3>
+    <p>The GM is the top basketball executive Basketball-Reference lists for the team, with exact start and end dates. A GM's moves are the ones their current team made from the day they took over (moves are credited to whoever was in charge on that date, so a draft right after a hiring belongs to the new GM). Data starts in <span id="first-season"></span>, so longer tenures are counted from then (marked †). <b>GMs are ranked by score per season</b>, so a 2-year GM and a 15-year GM are comparable (GMs with less than 2 seasons are divided by 2, so a handful of early moves can't swing the ranking). Switch the table to totals to see accumulated value. Team tables cover moves since <span id="team-start"></span>, and the last year and last 5 years.</p>
+
+    <h3>Data and updates</h3>
+    <p>Transactions, draft classes, advanced stats, team payrolls, contracts and the salary cap come from <a href="https://www.basketball-reference.com" rel="noopener">Basketball-Reference</a>; EPM comes from <a href="https://dunksandthrees.com/epm" rel="noopener">DunksAndThrees</a>. A cron job in the Docker container refreshes everything once a month. Finished seasons are cached, so monthly runs only download the current season. Spotrac, HoopsHype, RealGM, ESPN and stats.nba.com block automated requests, and LEBRON and Cleaning the Glass are behind paywalls or apps, so they aren't used.</p>
+    <h3>Known limits</h3>
+    <ul>
+      <li>Contract length and AAV are inferred from salary seasons; options and incentives aren't modeled, except team options in current contracts.</li>
+      <li>Stats inside a season aren't known month by month, so mid-season moves use only previously completed seasons.</li>
+      <li>Trades are judged on players and picks; cash and trade exceptions aren't valued.</li>
+      <li>Injured players count as zero production, so injuries count against the signing.</li>
+    </ul>
+  </div>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
