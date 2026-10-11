@@ -351,6 +351,11 @@ async function route() {
   window.scrollTo(0, 0);
 }
 
+(function version() {
+  const el = $('#app-version');
+  if (el) el.textContent = 'v' + el.dataset.version;
+})();
+
 (async function init() {
   try {
     S = await getJSON('data/summary.json');

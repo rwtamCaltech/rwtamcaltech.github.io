@@ -161,3 +161,5 @@ details.move > summary { list-style: none; cursor: pointer; }
 .z-b  { background: color-mix(in srgb, var(--b-bg) 55%, transparent); }
 .z-vb { background: var(--b-bg); color: var(--b-ink); box-shadow: inset 3px 0 0 var(--vb-bg); }
 .z-vg .rk, .z-vb .rk { color: inherit; opacity: .8; }
+
+.foot { padding: 0 max(16px, calc((100vw - 1400px) / 2)) 28px; }
