@@ -21,6 +21,7 @@
   <nav class="tabs">
     <a href="#gms" data-tab="gms">General managers</a>
     <a href="#teams" data-tab="teams">Teams</a>
+    <a href="#coaches" data-tab="coaches">Coaches</a>
     <a href="#method" data-tab="method">Method</a>
   </nav>
   <button class="theme" id="theme" type="button" aria-label="Toggle dark mode" title="Toggle theme"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
@@ -64,6 +65,11 @@
 
     <h3>Championships</h3>
     <p>A title is what the moves are for, so production-per-dollar alone undersells the moves that won one. For every champion, each player who produced at least 8% of the team's Win Shares that season credits the move that <b>brought him to the team</b> (a trade, free-agent signing, waiver claim or draft pick; re-signing someone already there doesn't count) with <b>150 × his share of the team's Win Shares</b>. For example, Anthony Davis (23% of the 2019-20 Lakers' Win Shares) adds +34.9 to the trade for him. The credit is part of the resolved score, and a title counts as the move having played out, so it reaches the headline score.</p>
+
+    <h3>Coach rating</h3>
+    <p>The Coaches tab asks: <b>did the players play better or worse than expected under this coach?</b> Before each season, every player gets a <b>projected BPM</b> (Box Plus/Minus). It starts from his last three seasons, weighted 50/30/20 and by minutes so injury years count less. It's regressed toward replacement level (−2.0) by 1,000 minutes, so short histories count for less, and adjusted by an <b>aging curve</b> fitted from the data, since young players typically improve and veterans decline. Rookies start from the average rookie BPM of their draft range. His <b>actual BPM</b> is what he did with that team that season.</p>
+    <p>The team's <b>overachievement</b> is the minutes-weighted average of actual − projected, × 5, i.e. points per 100 possessions the roster played above its projection. A 2,500-minute star missing his projection costs far more than a 50-minute reserve beating his. BPM is calibrated so that a team's minutes-weighted BPM × 5 tracks its net rating, so this is essentially "net rating vs. what this roster should have been". Each season is centered on the league average. A season shared by two coaches is split by games coached.</p>
+    <p>A coach's <b>average</b> is the games-weighted average over his seasons with the team, and <b>cumulative</b> adds them up (in 82-game seasons). The <b>rank</b> uses the average shrunk toward 0 by two average seasons, so a single great year doesn't top the table. Former coaches (at least 20 games with a team since 2008-09) are ranked separately. Caveats: player stats are season totals, so mid-season coaching changes are split by games, not by who actually played for whom. Tanking seasons count against the coach. And a long-tenured coach is partly measured against his own earlier work, because his players' previous seasons already include his coaching, which pulls long tenures toward 0.</p>
 
     <h3>Labels</h3>
     <p>Each move: <span class="pill VERY_GOOD">VERY GOOD</span> ≥ +15 · <span class="pill GOOD">GOOD</span> ≥ +5 (a STEAL) · <span class="pill OK">OK</span> · <span class="pill BAD">BAD</span> ≤ −5 · <span class="pill VERY_BAD">VERY BAD</span> ≤ −15.<br>GM and team category ratings compare each score per season against the other 29 front offices: ≥ +1 SD very good, ≥ +0.35 SD good, within ±0.35 SD OK, and so on.</p>

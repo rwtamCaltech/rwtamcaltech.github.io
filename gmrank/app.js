@@ -344,6 +344,73 @@ async function renderTeam(team) {
   bindInitialToggle(view);
 }
 
+/* ---------- coaches ---------- */
+const sgn = (v, d = 2) => v == null ? '–' : (v > 0 ? '+' : '') + Number(v).toFixed(d);
+const zCls = v => v >= 3 ? 'z-vg' : v >= 1 ? 'z-g' : v > -1 ? 'z-ok' : v > -3 ? 'z-b' : 'z-vb';
+
+function coachRows(list, linkFn, former) {
+  return list.map((c, i) => `
+    <tr class="link" data-href="${linkFn(c)}">
+      <td class="rank">${i + 1}</td>
+      <td class="name"><a href="${linkFn(c)}">${esc(c.name)}</a><div class="small muted">${esc(c.team_name)}</div></td>
+      <td class="hide-sm"><span class="team-tag">${c.team}</span></td>
+      <td class="num hide-sm">${former ? `${seasonLabel(c.first_season)} – ${seasonLabel(c.last_season)}` : seasonLabel(c.since)}<div class="rk">${c.games} games</div></td>
+      <td class="num ${zCls(c.avg)}"><span class="strong">${sgn(c.avg)}</span></td>
+      <td class="num hide-sm">${sgn(c.cumulative)}</td>
+      <td class="num">${sgn(c.score)}</td>
+      <td>${pill(c.rating)}</td>
+    </tr>`).join('');
+}
+
+function renderCoaches() {
+  const view = $('#view');
+  const cur = [...(S.coaches || [])].sort((a, b) => a.rank - b.rank);
+  const former = [...(S.former_coaches || [])].sort((a, b) => a.rank - b.rank);
+  const head = former => `<thead><tr><th>#</th><th>Coach</th><th class="hide-sm">Team</th><th class="num hide-sm">${former ? 'Tenure' : 'Since'}</th>
+    <th class="num" title="Games-weighted average overachievement per season (points per 100 possessions above projection)">Avg / season</th>
+    <th class="num hide-sm" title="Sum over the tenure, in 82-game seasons">Cumulative</th>
+    <th class="num" title="Average shrunk toward 0 by two average seasons; used for the rank">Rank score</th><th>Rating</th></tr></thead>`;
+  view.innerHTML = `
+    <h2>Coaches</h2>
+    <p class="lede">Did the players play better or worse than projected under this coach? Each season, every player's Box Plus/Minus is projected from his last three seasons (with aging and regression) and compared with what he did. The team's minutes-weighted difference is in points per 100 possessions above projection. Ranked by the average over the coach's seasons with his current team.</p>
+    <div class="table-wrap"><table>${head(false)}<tbody>${coachRows(cur, c => `#coach/${c.team}`, false)}</tbody></table></div>
+    ${(S.coaches_new || []).length ? `<p class="small muted">No completed season with their team yet (not ranked): ${S.coaches_new.map(c => `<b>${esc(c.name)}</b> (${c.team})`).join(', ')}.</p>` : ''}
+    <h2 style="margin-top:28px">Former coaches</h2>
+    <p class="lede">Every finished coaching run since ${seasonLabel(S.first_season + 1)} with at least 20 games, one row per team, ranked the same way.</p>
+    <div class="table-wrap"><table>${head(true)}<tbody>${coachRows(former, c => `#fcoach/${c.key}`, true)}</tbody></table></div>
+    <p class="small muted">Rank score = average shrunk toward 0 by two average seasons, so one great year can't top the table. Ratings compare rank scores within each table. See Method for caveats (tanking seasons, mid-season changes, long tenures measured partly against their own earlier work).</p>`;
+  bindRowLinks(view);
+}
+
+async function renderCoach(id, former) {
+  const view = $('#view');
+  const c = await getJSON(former ? `data/coach/former/${id}.json` : `data/coach/${id}.json`);
+  const plist = (ps, cls) => ps.length ? ps.map(p => `<div class="${cls}">${esc(p.name)} <span class="muted">${p.mp} min · proj ${sgn(p.proj, 1)} → ${sgn(p.actual, 1)}</span> <b>${sgn(p.contrib)}</b></div>`).join('') : '<span class="muted">–</span>';
+  const rows = [...c.rows].reverse().map(r => `<tr>
+      <td class="nowrap">${seasonLabel(r.season)}${r.share < 1 ? `<div class="rk">${Math.round(r.share * 100)}% of games</div>` : ''}</td>
+      <td class="num">${r.w}-${r.l}</td>
+      <td class="num hide-sm">${r.net_rtg != null ? sgn(r.net_rtg, 1) : '–'}</td>
+      <td class="num">${sgn(r.proj)}</td><td class="num">${sgn(r.actual)}</td>
+      <td class="num ${zCls(r.diff)}"><span class="strong">${sgn(r.diff)}</span></td>
+      <td class="small hide-sm">${plist(r.over, '')}</td><td class="small hide-sm">${plist(r.under, '')}</td></tr>`).join('');
+  view.innerHTML = `<a class="back" href="#coaches">← All coaches</a>${former ? ' <span class="small muted">(former coach: ranks are among the other former coaches)</span>' : ''}
+    <div class="hero"><div class="who"><h2>${esc(c.name)}</h2>
+      <p><span class="team-tag">${c.team}</span><a href="#team/${c.team}">${esc(c.team_name)}</a> · ${former ? `coached ${seasonLabel(c.first_season)} – ${seasonLabel(c.last_season)}` : `head coach since ${seasonLabel(c.since)}`} · ${c.games} games (${c.seasons} seasons)</p></div>
+      <div class="stat-tiles">
+        <div class="tile"><div class="k">${former ? 'Rank (former)' : 'Coach rank'}</div><div class="v">${c.rank} / ${c.of}</div></div>
+        <div class="tile"><div class="k">Avg / season</div><div class="v">${sgn(c.avg)}</div></div>
+        <div class="tile"><div class="k">Cumulative</div><div class="v">${sgn(c.cumulative)}</div></div>
+        <div class="tile"><div class="k">Rating</div><div class="v">${pill(c.rating)}</div></div>
+      </div></div>
+    <h3>Season by season</h3>
+    <p class="lede">Projected and actual are the roster's minutes-weighted Box Plus/Minus × 5 (points per 100 possessions vs. an average team); the difference, centered on the league that season, is the overachievement. Over- and under-achievers show each player's projection → actual BPM and his contribution to the team's difference.</p>
+    <div class="table-wrap"><table class="style-table"><thead><tr><th>Season</th><th class="num">Record</th><th class="num hide-sm">Net rating</th>
+      <th class="num">Projected</th><th class="num">Actual</th><th class="num">Overachievement</th><th class="hide-sm">Biggest overachievers</th><th class="hide-sm">Biggest underachievers</th></tr></thead>
+      <tbody>${rows}
+      <tr class="sum"><td>Average</td><td class="num">${c.rows.reduce((a, r) => a + r.w, 0)}-${c.rows.reduce((a, r) => a + r.l, 0)}</td><td class="hide-sm"></td><td></td><td></td>
+        <td class="num ${zCls(c.avg)}"><span class="strong">${sgn(c.avg)}</span></td><td class="hide-sm"></td><td class="hide-sm"></td></tr></tbody></table></div>`;
+}
+
 function renderMethod() {
   const view = $('#view');
   view.innerHTML = '';
@@ -357,13 +424,16 @@ function renderMethod() {
 async function route() {
   const h = location.hash.replace(/^#/, '') || 'gms';
   const [page, arg] = h.split('/');
-  document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === (page === 'gm' || page === 'former' ? 'gms' : page === 'team' ? 'teams' : page)));
+  document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === (page === 'gm' || page === 'former' ? 'gms' : page === 'team' ? 'teams' : page === 'coach' || page === 'fcoach' ? 'coaches' : page)));
   const view = $('#view');
   view.hidden = false;
   view.classList.remove('hide-initial');
   try {
     if (page === 'gm' && arg) await renderGM(arg);
     else if (page === 'former' && arg) await renderGM(arg, true);
+    else if (page === 'coaches') renderCoaches();
+    else if (page === 'coach' && arg) await renderCoach(arg, false);
+    else if (page === 'fcoach' && arg) await renderCoach(arg, true);
     else if (page === 'team' && arg) await renderTeam(arg);
     else if (page === 'teams') renderTeams();
     else if (page === 'method') renderMethod();
