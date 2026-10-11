@@ -114,6 +114,20 @@ function bindRowLinks(view) {
   view.querySelectorAll('tr.link').forEach(tr => tr.addEventListener('click', e => { if (!e.target.closest('a')) location.hash = tr.dataset.href; }));
 }
 
+/* ---------- current GM / coach links with their rank ---------- */
+function gmLink(team) {
+  const g = S.gms.find(x => x.team === team);
+  if (!g) return '–';
+  return `<a href="#gm/${team}">${esc(g.name)}</a> <span class="muted" title="GM rank (score per season)">(#${g.scores.overall.rank}/${g.scores.overall.of})</span>`;
+}
+
+function coachLink(team) {
+  const c = (S.coaches || []).find(x => x.team === team);
+  if (c) return `<a href="#coach/${team}">${esc(c.name)}</a> <span class="muted" title="Coach rank (overachievement)">(#${c.rank}/${c.of})</span>`;
+  const n = (S.coaches_new || []).find(x => x.team === team);
+  return n ? `${esc(n.name)} <span class="muted" title="No completed season with this team yet">(1st season)</span>` : '–';
+}
+
 /* ---------- team list ---------- */
 function renderTeams() {
   const view = $('#view');
@@ -127,19 +141,19 @@ function renderTeams() {
       <label>Horizon <select id="horizon">${Object.entries(S.horizons).map(([k, l]) => `<option value="${k}" ${k === h ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
       ${metricToggle()}</div>
     <div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>Team</th><th class="hide-sm">Current GM</th><th class="num hide-sm">Moves</th>
+      <thead><tr><th>#</th><th>Team</th><th class="hide-sm">Current GM</th><th class="hide-sm">Current coach</th><th class="num hide-sm">Moves</th>
       ${MAIN_COLS.map(([k, l]) => sortHead(k, l, key)).join('')}</tr></thead>
       <tbody>${rows.map((t, i) => {
-        const gm = S.gms.find(g => g.team === t.team);
         return `<tr class="link" data-href="#team/${t.team}">
           <td class="rank">${i + 1}</td>
           <td class="name"><span class="team-tag">${t.team}</span><a href="#team/${t.team}">${esc(t.team_name)}</a></td>
-          <td class="hide-sm">${gm ? `<a href="#gm/${t.team}">${esc(gm.name)}</a>` : '–'}</td>
+          <td class="hide-sm nowrap">${gmLink(t.team)}</td>
+          <td class="hide-sm nowrap">${coachLink(t.team)}</td>
           <td class="num hide-sm">${t.scores.overall.count}</td>
           ${MAIN_COLS.map(([k]) => scoreCell(t.scores[k], metric)).join('')}</tr>`;
       }).join('')}</tbody>
     </table></div>
-    <p class="small muted">Per season divides by the length of the horizon. Ratings compare each team with the other 29 over the same horizon.</p>`;
+    <p class="small muted">Per season divides by the length of the horizon. Ratings compare each team with the other 29 over the same horizon. The number in parentheses is the current GM's rank among GMs and the current coach's rank among coaches.</p>`;
   $('#horizon').addEventListener('change', e => { state.horizon = e.target.value; save(); renderTeams(); });
   bindMetric(view, renderTeams);
   view.querySelectorAll('[data-sort]').forEach(th => th.addEventListener('click', () => { state.teamSort = th.dataset.sort; save(); renderTeams(); }));
@@ -277,10 +291,10 @@ function fmtMetric(key, v) {
   return v.toFixed(3);
 }
 
-function styleSection(d) {
+function styleSection(d, who = 'GM', peers = 'GMs') {
   const st = d.style, M = S.style_metrics;
   if (!st || !st.seasons || !st.seasons.length) {
-    return `<h3>Roster profile</h3><p class="small muted">No completed season under this GM yet; the profile appears after their first full season.</p>`;
+    return `<h3>Roster profile</h3><p class="small muted">No completed season under this ${who} yet; the profile appears after their first full season.</p>`;
   }
   const of = st.ranked_of;
   const list = xs => xs.map(x => `<b>${esc(x.noun)}</b> <span class="muted">(#${x.gm_rank}/${of})</span>`).join(', ');
@@ -288,12 +302,12 @@ function styleSection(d) {
   const cell = (key, c) => c ? `<td class="num ${zClass(c.z)}" title="z ${c.z >= 0 ? '+' : ''}${c.z} vs league that season">${fmtMetric(key, c.v)}<div class="rk">#${c.rank}</div></td>` : '<td class="num">–</td>';
   const rows = [...st.seasons].reverse().map(r => `<tr><td class="nowrap">${seasonLabel(r.season)}${r.record && r.record[0] != null ? `<div class="rk">${r.record[0]}-${r.record[1]}</div>` : ''}</td>${M.map(m => cell(m.key, r.metrics[m.key])).join('')}</tr>`).join('');
   const avg = `<tr class="sum"><td>Average</td>${M.map(m => { const a = st.avg[m.key]; return a ? `<td class="num ${zClass(a.z)}">${a.z >= 0 ? '+' : ''}${a.z.toFixed(2)}<div class="rk">avg rank ${a.rank_avg}</div></td>` : '<td></td>'; }).join('')}</tr>`;
-  const gmr = `<tr class="sum"><td>Rank among GMs</td>${M.map(m => { const a = st.avg[m.key]; return a ? `<td class="num strong">${a.gm_rank} / ${a.of}</td>` : '<td></td>'; }).join('')}</tr>`;
+  const gmr = `<tr class="sum"><td>Rank among ${peers}</td>${M.map(m => { const a = st.avg[m.key]; return a ? `<td class="num strong">${a.gm_rank} / ${a.of}</td>` : '<td></td>'; }).join('')}</tr>`;
   return `<h3>Roster profile (value set)</h3>
-    <p class="lede">What this GM's teams were good and bad at, season by season (${st.seasons.length} completed season${st.seasons.length > 1 ? 's' : ''} in charge). Each cell is the team's rate and its league rank that season; colors compare it with the other 29 teams that year (z-score; for turnovers and points allowed, lower is better), so different eras are comparable.</p>
+    <p class="lede">What this ${who}'s teams were good and bad at, season by season (${st.seasons.length} completed season${st.seasons.length > 1 ? 's' : ''} in charge${who === 'coach' ? ', counting seasons he coached at least half of' : ''}). Strengths and weaknesses are relative to the other ${peers}. Each cell is the team's rate and its league rank that season; colors compare it with the other 29 teams that year (z-score; for turnovers and points allowed, lower is better), so different eras are comparable.</p>
     <div class="stat-tiles" style="margin-bottom:12px">
-      <div class="tile"><div class="k">Strengths</div><div class="small">${st.strengths.length ? list(st.strengths) : '<span class="muted">none in the top third of GMs</span>'}</div></div>
-      <div class="tile"><div class="k">Weaknesses</div><div class="small">${st.weaknesses.length ? list(st.weaknesses) : '<span class="muted">none in the bottom third of GMs</span>'}</div></div>
+      <div class="tile"><div class="k">Strengths</div><div class="small">${st.strengths.length ? list(st.strengths) : `<span class="muted">none in the top third of ${peers}</span>`}</div></div>
+      <div class="tile"><div class="k">Weaknesses</div><div class="small">${st.weaknesses.length ? list(st.weaknesses) : `<span class="muted">none in the bottom third of ${peers}</span>`}</div></div>
       <div class="tile"><div class="k">Overall level</div><div class="v">#${st.level_rank} / ${of}</div><div class="small muted">average z ${st.level >= 0 ? '+' : ''}${st.level}</div></div>
       <div class="tile"><div class="k">Roster balance</div><div class="v">#${st.balance_rank} / ${of}</div><div class="small muted">avg shortfall ${st.shortfall} (0 = no weak spots)</div></div>
       <div class="tile"><div class="k">Specialization</div><div class="v">${st.spread >= 0.8 ? 'Specialist' : st.spread >= 0.5 ? 'Mixed' : 'Generalist'}</div><div class="small muted">spread ${st.spread} · #${st.spec_rank} most specialized</div></div>
@@ -334,7 +348,7 @@ async function renderTeam(team) {
   const ts = S.teams[h].find(x => x.team === team);
   view.innerHTML = `<a class="back" href="#teams">← All teams</a>
     <div class="hero"><div class="who"><h2>${esc(d.team_name)}</h2>
-      <p>${d.gm ? `Current GM: <a href="#gm/${team}">${esc(d.gm.name)}</a> (since ${monthYear(d.gm.start_date)}) · ` : ''}moves since ${S.team_horizon_start}</p></div>
+      <p>${d.gm ? `Current GM: ${gmLink(team)}, since ${monthYear(d.gm.start_date)} · ` : ''}Current coach: ${coachLink(team)} · moves since ${S.team_horizon_start}</p></div>
       <div class="stat-tiles">${tiles}</div></div>
     <div class="toolbar">${initialToggle()}<span class="small muted">Off: only resolved scores (what actually happened; unfinished parts use the day-of estimate).</span></div>
     <h3>Scores by category <span class="small muted">(${esc(S.horizons[h])}; change on the Teams page)</span></h3>${categoryTable(ts.scores)}
@@ -408,7 +422,8 @@ async function renderCoach(id, former) {
       <th class="num">Projected</th><th class="num">Actual</th><th class="num">Overachievement</th><th class="hide-sm">Biggest overachievers</th><th class="hide-sm">Biggest underachievers</th></tr></thead>
       <tbody>${rows}
       <tr class="sum"><td>Average</td><td class="num">${c.rows.reduce((a, r) => a + r.w, 0)}-${c.rows.reduce((a, r) => a + r.l, 0)}</td><td class="hide-sm"></td><td></td><td></td>
-        <td class="num ${zCls(c.avg)}"><span class="strong">${sgn(c.avg)}</span></td><td class="hide-sm"></td><td class="hide-sm"></td></tr></tbody></table></div>`;
+        <td class="num ${zCls(c.avg)}"><span class="strong">${sgn(c.avg)}</span></td><td class="hide-sm"></td><td class="hide-sm"></td></tr></tbody></table></div>
+    ${styleSection(c, 'coach', former ? 'former coaches' : 'current coaches')}`;
 }
 
 function renderMethod() {
