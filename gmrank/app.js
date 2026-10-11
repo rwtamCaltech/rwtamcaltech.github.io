@@ -80,10 +80,32 @@ function renderGMs() {
           ${MAIN_COLS.map(([k]) => scoreCell(g.scores[k], metric)).join('')}
         </tr>`).join('')}</tbody>
     </table></div>
+    ${formerTable(key, metric)}
     <p class="small muted">† Tenure began before ${seasonLabel(S.first_season)}; only moves from then on are counted. Per-season scores mix in 3 seasons of league-average performance, so GMs with short tenures are pulled toward average until they build a record. Ratings compare each score per season with the other GMs. Hover a score for its rank.</p>`;
   bindMetric(view, renderGMs);
   view.querySelectorAll('[data-sort]').forEach(th => th.addEventListener('click', () => { state.sortKey = th.dataset.sort; save(); renderGMs(); }));
   bindRowLinks(view);
+}
+
+function formerTable(key, metric) {
+  const rows = [...(S.former_gms || [])].sort((a, b) => (b.scores[key][metric] ?? -1e9) - (a.scores[key][metric] ?? -1e9));
+  if (!rows.length) return '';
+  const yr = d => d.slice(0, 4);
+  return `<h2 style="margin-top:28px">Former GMs</h2>
+    <p class="lede">Every finished tenure since ${seasonLabel(S.first_season)}, scored the same way and ranked against each other (one row per team, so a GM who ran two teams appears twice). Same sort and per-season / total toggle as above.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>GM</th><th class="hide-sm">Team</th><th class="num hide-sm">Tenure</th><th class="num hide-sm">Moves</th>
+      ${MAIN_COLS.map(([k, l]) => sortHead(k, l, key)).join('')}</tr></thead>
+      <tbody>${rows.map((g, i) => `
+        <tr class="link" data-href="#former/${g.key}">
+          <td class="rank">${i + 1}</td>
+          <td class="name"><a href="#former/${g.key}">${esc(g.name)}</a><div class="small muted">${esc(g.team_name)}${g.now_at ? ` · now runs <a href="#gm/${g.now_at}">${g.now_at}</a>` : ''}</div></td>
+          <td class="hide-sm"><span class="team-tag">${g.team}</span></td>
+          <td class="num hide-sm">${yr(g.start_date)}${g.clipped ? '†' : ''}–${yr(g.end_date)}<div class="rk">${g.seasons} season${g.seasons === 1 ? '' : 's'}</div></td>
+          <td class="num hide-sm">${g.scores.overall.count}</td>
+          ${MAIN_COLS.map(([k]) => scoreCell(g.scores[k], metric)).join('')}
+        </tr>`).join('')}</tbody>
+    </table></div>`;
 }
 
 function seasonLabel(s) { return `${s - 1}-${String(s).slice(2)}`; }
@@ -279,15 +301,15 @@ function styleSection(d) {
     <div class="table-wrap"><table class="style-table"><thead>${head}</thead><tbody>${rows}${avg}${gmr}</tbody></table></div>`;
 }
 
-async function renderGM(team) {
+async function renderGM(team, former = false) {
   const view = $('#view');
-  const d = await getJSON(`data/gm/${team}.json`);
+  const d = await getJSON(former ? `data/gm/former/${team}.json` : `data/gm/${team}.json`);
   const sc = d.scores;
-  view.innerHTML = `<a class="back" href="#gms">← All GMs</a>
+  view.innerHTML = `<a class="back" href="#gms">← All GMs</a>${former ? ' <span class="small muted">(former GM: ranks are among the other former GMs)</span>' : ''}
     <div class="hero"><div class="who"><h2>${esc(d.name)}</h2>
-      <p><span class="team-tag">${d.team}</span><a href="#team/${d.team}">${esc(d.team_name)}</a> · running the team since ${fmtDate(d.start_date)}${d.clipped ? ` (counted from ${seasonLabel(S.first_season)})` : ''} · ${d.seasons} season${d.seasons === 1 ? '' : 's'}</p></div>
+      <p><span class="team-tag">${d.team}</span><a href="#team/${d.team}">${esc(d.team_name)}</a> · ${d.end_date ? `ran the team ${fmtDate(d.start_date)} – ${fmtDate(d.end_date)}` : `running the team since ${fmtDate(d.start_date)}`}${d.clipped ? ` (counted from ${seasonLabel(S.first_season)})` : ''} · ${d.seasons} season${d.seasons === 1 ? '' : 's'}${d.now_at ? ` · now runs <a href="#gm/${d.now_at}">${d.now_at}</a>` : ''}</p></div>
       <div class="stat-tiles">
-        <div class="tile"><div class="k">GM rank</div><div class="v">${sc.overall.rank} / ${sc.overall.of}</div></div>
+        <div class="tile"><div class="k">${d.end_date ? 'Rank among former GMs' : 'GM rank'}</div><div class="v">${sc.overall.rank} / ${sc.overall.of}</div></div>
         <div class="tile"><div class="k">Score / season</div><div class="v">${fmt(sc.overall.per_season, 2)}</div></div>
         <div class="tile"><div class="k">Total score</div><div class="v">${fmt(sc.overall.total)}</div></div>
         <div class="tile"><div class="k">Rating</div><div class="v">${pill(sc.overall.rating)}</div></div>
@@ -335,12 +357,13 @@ function renderMethod() {
 async function route() {
   const h = location.hash.replace(/^#/, '') || 'gms';
   const [page, arg] = h.split('/');
-  document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === (page === 'gm' ? 'gms' : page === 'team' ? 'teams' : page)));
+  document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === (page === 'gm' || page === 'former' ? 'gms' : page === 'team' ? 'teams' : page)));
   const view = $('#view');
   view.hidden = false;
   view.classList.remove('hide-initial');
   try {
     if (page === 'gm' && arg) await renderGM(arg);
+    else if (page === 'former' && arg) await renderGM(arg, true);
     else if (page === 'team' && arg) await renderTeam(arg);
     else if (page === 'teams') renderTeams();
     else if (page === 'method') renderMethod();
