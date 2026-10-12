@@ -62,7 +62,7 @@ function sortHead(key, label, current) {
 function renderGMs() {
   const view = $('#view');
   const key = state.sortKey, metric = state.metric;
-  const rows = [...S.gms].sort((a, b) => (b.scores[key][metric] ?? -1e9) - (a.scores[key][metric] ?? -1e9));
+  const rows = [...S.gms].sort((a, b) => gmSortVal(b, key, metric) - gmSortVal(a, key, metric));
   view.innerHTML = `
     <h2>General managers</h2>
     <p class="lede">The 30 current lead basketball executives, ranked by the value of their moves with their current team (in % of cap × seasons). Click a GM for their full report.</p>
@@ -81,14 +81,18 @@ function renderGMs() {
         </tr>`).join('')}</tbody>
     </table></div>
     ${formerTable(key, metric)}
-    <p class="small muted">† Tenure began before ${seasonLabel(S.first_season)}; only moves from then on are counted. Per-season scores mix in 3 seasons of league-average performance, so GMs with short tenures are pulled toward average until they build a record. Ratings compare each score per season with the other GMs. Hover a score for its rank.</p>`;
+    <p class="small muted">† Tenure began before ${seasonLabel(S.first_season)}; only moves from then on are counted. Per-season scores mix in 3 seasons of league-average performance, and the per-season ranking subtracts an uncertainty penalty that shrinks with tenure, so GMs with short tenures need a clearly strong record to rank high. Ratings compare each score per season with the other GMs. Hover a score for its rank.</p>`;
   bindMetric(view, renderGMs);
   view.querySelectorAll('[data-sort]').forEach(th => th.addEventListener('click', () => { state.sortKey = th.dataset.sort; save(); renderGMs(); }));
   bindRowLinks(view);
 }
 
+// Per season: GMs are ranked on the confidence-adjusted score (short tenures need a clearly
+// strong record); the cell still shows the per-season score. Total: ranked on the total.
+const gmSortVal = (g, key, metric) => g.scores[key][metric === 'per_season' ? 'confidence' : metric] ?? -1e9;
+
 function formerTable(key, metric) {
-  const rows = [...(S.former_gms || [])].sort((a, b) => (b.scores[key][metric] ?? -1e9) - (a.scores[key][metric] ?? -1e9));
+  const rows = [...(S.former_gms || [])].sort((a, b) => gmSortVal(b, key, metric) - gmSortVal(a, key, metric));
   if (!rows.length) return '';
   const yr = d => d.slice(0, 4);
   return `<h2 style="margin-top:28px">Former GMs</h2>
@@ -250,7 +254,7 @@ function moveDetail(it) {
         <td class="num in">${a.fair_pre != null ? a.fair_pre + '%' : '–'}</td><td class="num in">${a.salary_pct != null ? a.salary_pct + '%' : '–'}</td><td class="num in">${a.years_left ?? '–'}</td></tr>`).join('')}</tbody></table>`;
   }
   if (d.text) h += `<div class="src">${esc(d.text)}</div>`;
-  if (it.initial_label && it.category !== 'draft') h += `<div class="small ini" style="margin-top:6px">Initial: ${pill(it.initial_label)} · Resolved: ${pill(it.resolved_label)} · Headline uses the <b>${it.headline_kind}</b> score${it.headline_kind === 'initial' ? ' (less than 70% played out)' : ''}.</div>`;
+  if (it.initial_label && it.category !== 'draft') h += `<div class="small ini" style="margin-top:6px">Initial: ${pill(it.initial_label)} · Resolved: ${pill(it.resolved_label)} · Headline uses the <b>${it.headline_kind}</b> score (${Math.round((it.resolution || 0) * 100)}% played out; the rest is estimated from the latest production).</div>`;
   return `<tr class="detail-row" data-for="${it.id}"><td colspan="7">${h}</td></tr>`;
 }
 
@@ -328,7 +332,7 @@ async function renderGM(team, former = false) {
         <div class="tile"><div class="k">Total score</div><div class="v">${fmt(sc.overall.total)}</div></div>
         <div class="tile"><div class="k">Rating</div><div class="v">${pill(sc.overall.rating)}</div></div>
       </div></div>
-    <div class="toolbar">${initialToggle()}<span class="small muted">Off: only resolved scores (what actually happened; unfinished parts use the day-of estimate).</span></div>
+    <div class="toolbar">${initialToggle()}<span class="small muted">Off: only resolved scores (what actually happened; unfinished parts estimated from the latest production).</span></div>
     <h3>Scores by category</h3>${categoryTable(sc)}
     ${styleSection(d)}
     <h3>Best and worst moves</h3>${bestWorst(d)}
@@ -346,11 +350,12 @@ async function renderTeam(team) {
   }).join('');
   const h = state.horizon in S.teams ? state.horizon : 'all';
   const ts = S.teams[h].find(x => x.team === team);
+  const pj = S.projection && S.projection.teams.find(x => x.team === team);
   view.innerHTML = `<a class="back" href="#teams">← All teams</a>
     <div class="hero"><div class="who"><h2>${esc(d.team_name)}</h2>
       <p>${d.gm ? `Current GM: ${gmLink(team)}, since ${monthYear(d.gm.start_date)} · ` : ''}Current coach: ${coachLink(team)} · moves since ${S.team_horizon_start}</p></div>
-      <div class="stat-tiles">${tiles}</div></div>
-    <div class="toolbar">${initialToggle()}<span class="small muted">Off: only resolved scores (what actually happened; unfinished parts use the day-of estimate).</span></div>
+      <div class="stat-tiles">${tiles}${pj ? `<div class="tile"><div class="k">${seasonLabel(S.projection.season)} outlook</div><div class="v"><a href="#outlook/${team}">#${pj.rank}</a></div><div class="small">${sgn(pj.net)} · ${Math.round(pj.wins)}-${82 - Math.round(pj.wins)}</div></div>` : ''}</div></div>
+    <div class="toolbar">${initialToggle()}<span class="small muted">Off: only resolved scores (what actually happened; unfinished parts estimated from the latest production).</span></div>
     <h3>Scores by category <span class="small muted">(${esc(S.horizons[h])}; change on the Teams page)</span></h3>${categoryTable(ts.scores)}
     <h3>Best and worst moves since ${S.team_horizon_start}</h3>${bestWorst(d)}
     ${movesSection(d.items)}`;
@@ -396,6 +401,27 @@ function renderCoaches() {
   bindRowLinks(view);
 }
 
+function otherRuns(c) {
+  const runs = c.other_runs || [];
+  if (!runs.length) return '';
+  return `<h2 style="margin-top:32px">${c.end_date || c.key ? 'Other teams' : 'Former teams'}</h2>
+    <p class="lede">${esc(c.name)}'s other head-coaching runs since ${seasonLabel(S.first_season + 1)}, each with its overall rating and roster profile (ranked among ${runs.some(r => r.current) ? 'the coaches in that table' : 'former coaches'}).</p>
+    ${runs.map(r => {
+      const link = r.current ? `#coach/${r.team}` : `#fcoach/${r.key}`;
+      return `<div class="card" style="padding:14px 16px;margin-bottom:16px">
+        <div class="hero" style="margin-bottom:8px"><div class="who"><h3 style="margin:0"><span class="team-tag">${r.team}</span><a href="${link}">${esc(r.team_name)}</a></h3>
+          <p>${seasonLabel(r.first_season)} – ${r.current ? 'present' : seasonLabel(r.last_season)} · ${r.games} games (${r.record[0]}-${r.record[1]})${r.current ? ' · current team' : ''}</p></div>
+          <div class="stat-tiles">
+            <div class="tile"><div class="k">${r.current ? 'Coach rank' : 'Rank (former)'}</div><div class="v">${r.rank} / ${r.of}</div></div>
+            <div class="tile"><div class="k">Avg / season</div><div class="v">${sgn(r.avg)}</div></div>
+            <div class="tile"><div class="k">Cumulative</div><div class="v">${sgn(r.cumulative)}</div></div>
+            <div class="tile"><div class="k">Rating</div><div class="v">${pill(r.rating)}</div></div>
+          </div></div>
+        ${styleSection(r, 'coach', r.current ? 'current coaches' : 'former coaches')}
+        <p class="small"><a href="${link}">Season-by-season details for this run →</a></p></div>`;
+    }).join('')}`;
+}
+
 async function renderCoach(id, former) {
   const view = $('#view');
   const c = await getJSON(former ? `data/coach/former/${id}.json` : `data/coach/${id}.json`);
@@ -423,7 +449,63 @@ async function renderCoach(id, former) {
       <tbody>${rows}
       <tr class="sum"><td>Average</td><td class="num">${c.rows.reduce((a, r) => a + r.w, 0)}-${c.rows.reduce((a, r) => a + r.l, 0)}</td><td class="hide-sm"></td><td></td><td></td>
         <td class="num ${zCls(c.avg)}"><span class="strong">${sgn(c.avg)}</span></td><td class="hide-sm"></td><td class="hide-sm"></td></tr></tbody></table></div>
-    ${styleSection(c, 'coach', former ? 'former coaches' : 'current coaches')}`;
+    ${styleSection(c, 'coach', former ? 'former coaches' : 'current coaches')}
+    ${otherRuns(c)}`;
+}
+
+/* ---------- outlook (this season's expectation score) ---------- */
+function renderOutlook() {
+  const view = $('#view');
+  const P = S.projection;
+  if (!P) { view.innerHTML = '<p class="empty">No roster projection yet.</p>'; return; }
+  view.innerHTML = `
+    <h2>${seasonLabel(P.season)} Outlook</h2>
+    <p class="lede">The <b>expectation score</b> projects each team's net rating (points per 100 possessions vs an average team) from its current roster: every player's projected impact (Box Plus/Minus from his last three seasons, with aging; rookies from their draft slot) weighted by his projected minutes, with each roster summing to the same 19,680 minutes of an 82-game season. Click a team for its projected rotation.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Team</th><th class="num" title="Projected net rating, points per 100 possessions vs an average team">Expectation score</th><th class="num">Projected wins</th><th class="hide-sm">Top contributors</th><th class="num hide-sm">Roster</th></tr></thead>
+      <tbody>${P.teams.map(t => `<tr class="link" data-href="#outlook/${t.team}">
+        <td class="rank">${t.rank}</td>
+        <td class="name"><span class="team-tag">${t.team}</span><a href="#outlook/${t.team}">${esc(t.team_name)}</a></td>
+        <td class="num ${zCls(t.net / 1.5)}"><span class="strong">${sgn(t.net)}</span></td>
+        <td class="num">${Math.round(t.wins)}-${82 - Math.round(t.wins)}</td>
+        <td class="hide-sm small">${t.top.map(esc).join(', ')}</td>
+        <td class="num hide-sm">${t.roster_size}</td></tr>`).join('')}</tbody></table></div>
+    <p class="small muted">Rosters are the current Basketball-Reference team pages (including training-camp players, who mostly project to few minutes). Rookies are projected from draft position (college and international stats aren't in the data yet). See Method for the backtest.</p>`;
+  bindRowLinks(view);
+}
+
+async function renderOutlookTeam(team) {
+  const view = $('#view');
+  const P = await getJSON('data/projection.json');
+  const t = P.teams.find(x => x.team === team);
+  if (!t) { view.innerHTML = '<p class="empty">No projection for this team.</p>'; return; }
+  const bt = P.backtest || [];
+  view.innerHTML = `<a class="back" href="#outlook">← Outlook</a>
+    <div class="hero"><div class="who"><h2>${esc(t.team_name)}</h2>
+      <p>${seasonLabel(P.season)} projection · <a href="#team/${team}">team moves</a> · GM ${gmLink(team)} · coach ${coachLink(team)}</p></div>
+      <div class="stat-tiles">
+        <div class="tile"><div class="k">Expectation rank</div><div class="v">${t.rank} / ${P.teams.length}</div></div>
+        <div class="tile"><div class="k">Expectation score</div><div class="v">${sgn(t.net)}</div><div class="small muted">net rating per 100</div></div>
+        <div class="tile"><div class="k">Projected record</div><div class="v">${Math.round(t.wins)}-${82 - Math.round(t.wins)}</div></div>
+      </div></div>
+    <h3>Projected rotation</h3>
+    <p class="lede">Ordered by projected minutes. Projected impact is the player's projected Box Plus/Minus; contribution is his share of the team's expectation score (minutes × impact vs league average, in points per 100). Minutes per game are per team game (season total ÷ 82), so they already allow for games missed.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Player</th><th class="num">Age</th><th class="hide-sm">Last season</th><th class="hide-sm">Role basis</th>
+        <th class="num">Proj. minutes</th><th class="num">Min / game</th><th class="num">Proj. impact (BPM)</th><th class="num">Contribution</th></tr></thead>
+      <tbody>${t.players.map((p, i) => `<tr>
+        <td class="rank">${i + 1}</td>
+        <td>${esc(p.name)}${p.exp === 'R' ? ' <span class="pill OK">ROOKIE</span>' : ''}<div class="rk">${esc(p.bpm_basis === 'history' ? 'projected from last 3 seasons' : p.bpm_basis === 'rookie' ? 'rookie: draft-slot average' : 'no NBA history: replacement level')}</div></td>
+        <td class="num">${p.age ?? '–'}</td>
+        <td class="hide-sm small">${p.last ? `${p.last.team === 'TOT' ? 'multiple teams' : p.last.team}: ${p.last.mp} min, BPM ${sgn(p.last.bpm, 1)}` : '<span class="muted">did not play</span>'}</td>
+        <td class="hide-sm small muted">${esc(p.mp_basis)}</td>
+        <td class="num">${p.mp.toLocaleString()}</td>
+        <td class="num">${p.mpg}</td>
+        <td class="num ${zCls(p.bpm / 1.5)}">${sgn(p.bpm, 1)}</td>
+        <td class="num strong">${sgn(p.contrib)}</td></tr>`).join('')}
+      <tr class="sum"><td></td><td>Team</td><td></td><td class="hide-sm"></td><td class="hide-sm"></td>
+        <td class="num">${t.players.reduce((a, p) => a + p.mp, 0).toLocaleString()}</td><td class="num">240</td><td></td><td class="num strong">${sgn(t.net)}</td></tr></tbody></table></div>
+    ${bt.length ? `<p class="small muted">Backtest (past seasons rebuilt from each season's roster with projected minutes): correlation with real net rating ${bt.map(r => `${seasonLabel(r.season)} ${r.corr}`).join(', ')}; typical miss ${bt.map(r => r.mae_net).join(' / ')} points.</p>` : ''}`;
 }
 
 function renderMethod() {
@@ -447,6 +529,8 @@ async function route() {
     if (page === 'gm' && arg) await renderGM(arg);
     else if (page === 'former' && arg) await renderGM(arg, true);
     else if (page === 'coaches') renderCoaches();
+    else if (page === 'outlook' && arg) await renderOutlookTeam(arg);
+    else if (page === 'outlook') renderOutlook();
     else if (page === 'coach' && arg) await renderCoach(arg, false);
     else if (page === 'fcoach' && arg) await renderCoach(arg, true);
     else if (page === 'team' && arg) await renderTeam(arg);
