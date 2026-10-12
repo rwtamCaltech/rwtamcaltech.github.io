@@ -460,7 +460,7 @@ function renderOutlook() {
   if (!P) { view.innerHTML = '<p class="empty">No roster projection yet.</p>'; return; }
   view.innerHTML = `
     <h2>${seasonLabel(P.season)} Outlook</h2>
-    <p class="lede">The <b>expectation score</b> projects each team's net rating (points per 100 possessions vs an average team) from its current roster: every player's projected impact (Box Plus/Minus from his last three seasons, with aging; rookies from their draft slot) weighted by his projected minutes, with each roster summing to the same 19,680 minutes of an 82-game season. Click a team for its projected rotation.</p>
+    <p class="lede">The <b>expectation score</b> projects each team's net rating (points per 100 possessions vs an average team) from its current roster: every player's projected impact (Box Plus/Minus from his last three seasons, with aging; rookies from their draft slot and college stats) weighted by his projected minutes and games, with each roster summing to the same 19,680 minutes of an 82-game season. Click a team for its projected rotation.</p>
     <div class="table-wrap"><table>
       <thead><tr><th>#</th><th>Team</th><th class="num" title="Projected net rating, points per 100 possessions vs an average team">Expectation score</th><th class="num">Projected wins</th><th class="hide-sm">Top contributors</th><th class="num hide-sm">Roster</th></tr></thead>
       <tbody>${P.teams.map(t => `<tr class="link" data-href="#outlook/${t.team}">
@@ -470,7 +470,7 @@ function renderOutlook() {
         <td class="num">${Math.round(t.wins)}-${82 - Math.round(t.wins)}</td>
         <td class="hide-sm small">${t.top.map(esc).join(', ')}</td>
         <td class="num hide-sm">${t.roster_size}</td></tr>`).join('')}</tbody></table></div>
-    <p class="small muted">Rosters are the current Basketball-Reference team pages (including training-camp players, who mostly project to few minutes). Rookies are projected from draft position (college and international stats aren't in the data yet). See Method for the backtest.</p>`;
+    <p class="small muted">Rosters are the current Basketball-Reference team pages (including training-camp players, who mostly project to few minutes). Rookies are projected from draft position plus college stats where available (international players from draft position only); their roles grow where the roster leaves minutes open at their position. See Method for details and the backtest.</p>`;
   bindRowLinks(view);
 }
 
@@ -489,22 +489,32 @@ async function renderOutlookTeam(team) {
         <div class="tile"><div class="k">Projected record</div><div class="v">${Math.round(t.wins)}-${82 - Math.round(t.wins)}</div></div>
       </div></div>
     <h3>Projected rotation</h3>
-    <p class="lede">Ordered by projected minutes. Projected impact is the player's projected Box Plus/Minus; contribution is his share of the team's expectation score (minutes × impact vs league average, in points per 100). Minutes per game are per team game (season total ÷ 82), so they already allow for games missed.</p>
+    <p class="lede">Ordered by projected minutes. <b>Games</b> are his projected games played (recent games regressed toward 65; two-way players at most 50), and <b>min / game</b> = projected minutes ÷ games. <b>Impact</b> is his projected Box Plus/Minus, and <b>contribution</b> his share of the team's expectation score (minutes × impact vs league average, in points per 100). Rookies and newcomers get a bigger role where the roster's veterans at their position (guard / wing / big) fall short of the league's usual minutes.</p>
     <div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>Player</th><th class="num">Age</th><th class="hide-sm">Last season</th><th class="hide-sm">Role basis</th>
-        <th class="num">Proj. minutes</th><th class="num">Min / game</th><th class="num">Proj. impact (BPM)</th><th class="num">Contribution</th></tr></thead>
-      <tbody>${t.players.map((p, i) => `<tr>
+      <thead><tr><th>#</th><th>Player</th><th class="num">Age</th><th class="num">Pos</th><th class="hide-sm">Last season</th>
+        <th class="num">Games</th><th class="num">Min / game</th><th class="num hide-sm">Minutes</th><th class="num">Impact (BPM)</th><th class="num">Contribution</th></tr></thead>
+      <tbody>${t.players.map((p, i) => {
+        const c = p.college;
+        const note = p.bpm_basis === 'history' ? 'projected from last 3 seasons'
+          : p.bpm_basis === 'rookie+college' ? 'rookie: draft slot + college stats'
+          : p.bpm_basis === 'rookie' ? 'rookie: draft-slot average' : 'no NBA history: replacement level';
+        return `<tr>
         <td class="rank">${i + 1}</td>
-        <td>${esc(p.name)}${p.exp === 'R' ? ' <span class="pill OK">ROOKIE</span>' : ''}<div class="rk">${esc(p.bpm_basis === 'history' ? 'projected from last 3 seasons' : p.bpm_basis === 'rookie' ? 'rookie: draft-slot average' : 'no NBA history: replacement level')}</div></td>
+        <td>${esc(p.name)}${p.exp === 'R' ? ' <span class="pill OK">ROOKIE</span>' : ''}${p.tw ? ' <span class="pill N_A">TWO-WAY</span>' : ''}
+          <div class="rk">${esc(note)} · ${esc(p.mp_basis)}</div>
+          ${c ? `<div class="rk">${esc(c.season)} ${esc(c.college || '')}: ${(c.pts40).toFixed(1)} pts, ${(c.trb40).toFixed(1)} reb, ${(c.ast40).toFixed(1)} ast per 40 · ${(c.ts * 100).toFixed(1)}% TS</div>` : ''}</td>
         <td class="num">${p.age ?? '–'}</td>
-        <td class="hide-sm small">${p.last ? `${p.last.team === 'TOT' ? 'multiple teams' : p.last.team}: ${p.last.mp} min, BPM ${sgn(p.last.bpm, 1)}` : '<span class="muted">did not play</span>'}</td>
-        <td class="hide-sm small muted">${esc(p.mp_basis)}</td>
-        <td class="num">${p.mp.toLocaleString()}</td>
-        <td class="num">${p.mpg}</td>
+        <td class="num">${esc(p.pos || '–')}</td>
+        <td class="hide-sm small">${p.last ? `${p.last.team === 'TOT' ? 'multiple teams' : p.last.team}: ${p.last.g ?? '?'} g, ${p.last.mp} min, BPM ${sgn(p.last.bpm, 1)}` : '<span class="muted">did not play</span>'}</td>
+        <td class="num">${p.g}</td>
+        <td class="num strong">${p.mpg}</td>
+        <td class="num hide-sm">${p.mp.toLocaleString()}</td>
         <td class="num ${zCls(p.bpm / 1.5)}">${sgn(p.bpm, 1)}</td>
-        <td class="num strong">${sgn(p.contrib)}</td></tr>`).join('')}
-      <tr class="sum"><td></td><td>Team</td><td></td><td class="hide-sm"></td><td class="hide-sm"></td>
-        <td class="num">${t.players.reduce((a, p) => a + p.mp, 0).toLocaleString()}</td><td class="num">240</td><td></td><td class="num strong">${sgn(t.net)}</td></tr></tbody></table></div>
+        <td class="num strong">${sgn(p.contrib)}</td></tr>`;
+      }).join('')}
+      <tr class="sum"><td></td><td>Team</td><td></td><td></td><td class="hide-sm"></td><td></td><td></td>
+        <td class="num hide-sm">${t.players.reduce((a, p) => a + p.mp, 0).toLocaleString()}</td><td></td><td class="num strong">${sgn(t.net)}</td></tr></tbody></table></div>
+    ${P.college_model ? `<p class="small muted">College model: fitted on ${P.college_model.samples} past draftees; typical error ${P.college_model.mae_model} BPM vs ${P.college_model.mae_prior} for draft slot alone (leave-one-draft-year-out) — ${P.college_model.used ? 'used for rookies with college stats' : 'not better than draft slot, so not used'}.</p>` : ''}
     ${bt.length ? `<p class="small muted">Backtest (past seasons rebuilt from each season's roster with projected minutes): correlation with real net rating ${bt.map(r => `${seasonLabel(r.season)} ${r.corr}`).join(', ')}; typical miss ${bt.map(r => r.mae_net).join(' / ')} points.</p>` : ''}`;
 }
 
