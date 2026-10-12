@@ -462,11 +462,12 @@ function renderOutlook() {
     <h2>${seasonLabel(P.season)} Outlook</h2>
     <p class="lede">The <b>expectation score</b> projects each team's net rating (points per 100 possessions vs an average team) from its current roster: every player's projected impact (Box Plus/Minus from his last three seasons, with aging; rookies from their draft slot and college stats) weighted by his projected minutes and games, with each roster summing to the same 19,680 minutes of an 82-game season. Click a team for its projected rotation.</p>
     <div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>Team</th><th class="num" title="Projected net rating, points per 100 possessions vs an average team">Expectation score</th><th class="num">Projected wins</th><th class="hide-sm">Top contributors</th><th class="num hide-sm">Roster</th></tr></thead>
+      <thead><tr><th>#</th><th>Team</th><th class="num" title="Projected net rating, points per 100 possessions vs an average team">Expectation score</th><th class="num hide-sm" title="From the projected roster alone">Roster</th><th class="num hide-sm" title="Actual net rating last season (vs league average), weighted 25%">Last season</th><th class="num">Projected wins</th><th class="hide-sm">Top contributors</th><th class="num hide-sm">Roster</th></tr></thead>
       <tbody>${P.teams.map(t => `<tr class="link" data-href="#outlook/${t.team}">
         <td class="rank">${t.rank}</td>
         <td class="name"><span class="team-tag">${t.team}</span><a href="#outlook/${t.team}">${esc(t.team_name)}</a></td>
         <td class="num ${zCls(t.net / 1.5)}"><span class="strong">${sgn(t.net)}</span></td>
+        <td class="num hide-sm">${sgn(t.roster_net)}</td><td class="num hide-sm">${t.last_net == null ? '–' : sgn(t.last_net)}</td>
         <td class="num">${Math.round(t.wins)}-${82 - Math.round(t.wins)}</td>
         <td class="hide-sm small">${t.top.map(esc).join(', ')}</td>
         <td class="num hide-sm">${t.roster_size}</td></tr>`).join('')}</tbody></table></div>
@@ -485,7 +486,7 @@ async function renderOutlookTeam(team) {
       <p>${seasonLabel(P.season)} projection · <a href="#team/${team}">team moves</a> · GM ${gmLink(team)} · coach ${coachLink(team)}</p></div>
       <div class="stat-tiles">
         <div class="tile"><div class="k">Expectation rank</div><div class="v">${t.rank} / ${P.teams.length}</div></div>
-        <div class="tile"><div class="k">Expectation score</div><div class="v">${sgn(t.net)}</div><div class="small muted">net rating per 100</div></div>
+        <div class="tile"><div class="k">Expectation score</div><div class="v">${sgn(t.net)}</div><div class="small muted">75% roster ${sgn(t.roster_net)} + 25% last season ${t.last_net == null ? '–' : sgn(t.last_net)}</div></div>
         <div class="tile"><div class="k">Projected record</div><div class="v">${Math.round(t.wins)}-${82 - Math.round(t.wins)}</div></div>
       </div></div>
     <h3>Projected rotation</h3>
@@ -513,7 +514,8 @@ async function renderOutlookTeam(team) {
         <td class="num strong">${sgn(p.contrib)}</td></tr>`;
       }).join('')}
       <tr class="sum"><td></td><td>Team</td><td></td><td></td><td class="hide-sm"></td><td></td><td></td>
-        <td class="num hide-sm">${t.players.reduce((a, p) => a + p.mp, 0).toLocaleString()}</td><td></td><td class="num strong">${sgn(t.net)}</td></tr></tbody></table></div>
+        <td class="num hide-sm">${t.players.reduce((a, p) => a + p.mp, 0).toLocaleString()}</td><td></td><td class="num strong" title="Roster projection (the players' contributions add up to this)">${sgn(t.roster_net)}</td></tr></tbody></table></div>
+    <p class="small muted">Contributions add up to the roster projection (${sgn(t.roster_net)}). The expectation score blends it 75/25 with the team's actual net rating last season (${t.last_net == null ? '–' : sgn(t.last_net)} vs league average), which tracks real results better in the backtest.</p>
     ${P.college_model ? `<p class="small muted">College model: fitted on ${P.college_model.samples} past draftees; typical error ${P.college_model.mae_model} BPM vs ${P.college_model.mae_prior} for draft slot alone (leave-one-draft-year-out) — ${P.college_model.used ? 'used for rookies with college stats' : 'not better than draft slot, so not used'}.</p>` : ''}
     ${bt.length ? `<p class="small muted">Backtest (past seasons rebuilt from each season's roster with projected minutes): correlation with real net rating ${bt.map(r => `${seasonLabel(r.season)} ${r.corr}`).join(', ')}; typical miss ${bt.map(r => r.mae_net).join(' / ')} points.</p>` : ''}`;
 }
