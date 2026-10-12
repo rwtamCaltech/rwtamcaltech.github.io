@@ -500,7 +500,7 @@ async function renderOutlookTeam(team) {
           : p.bpm_basis === 'rookie' ? 'rookie: draft-slot average' : 'no NBA history: replacement level';
         return `<tr>
         <td class="rank">${i + 1}</td>
-        <td>${esc(p.name)}${p.exp === 'R' ? ' <span class="pill OK">ROOKIE</span>' : ''}${p.tw ? ' <span class="pill N_A">TWO-WAY</span>' : ''}
+        <td>${esc(p.name)}${p.exp === 'R' ? ' <span class="pill OK">ROOKIE</span>' : ''}${p.tw ? ' <span class="pill N_A">TWO-WAY</span>' : ''}${p.breakout ? ' <span class="pill GOOD" title="Young, projected for a real role, and a big jump in impact or minutes">BREAKOUT?</span>' : ''}${p.regression ? ' <span class="pill BAD" title="Minutes per game fell below 75% of the season before (a demotion, not injuries), so no development bump">REGRESSION?</span>' : ''}
           <div class="rk">${esc(note)} · ${esc(p.mp_basis)}</div>
           ${c ? `<div class="rk">${esc(c.season)} ${esc(c.college || '')}: ${(c.pts40).toFixed(1)} pts, ${(c.trb40).toFixed(1)} reb, ${(c.ast40).toFixed(1)} ast per 40 · ${(c.ts * 100).toFixed(1)}% TS</div>` : ''}</td>
         <td class="num">${p.age ?? '–'}</td>
