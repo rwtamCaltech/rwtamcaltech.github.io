@@ -401,6 +401,35 @@ function renderCoaches() {
   bindRowLinks(view);
 }
 
+/* coaching-adjusted ("normalized") strengths and weaknesses */
+function fmtAdj(key, v) {
+  if (v == null) return '–';
+  if (key === 'ts' || key === '3par') return (v * 100).toFixed(1) + '%';
+  if (key === 'ftr') return v.toFixed(3);
+  if (key === 'off' || key === 'def') return sgn(v, 1);
+  return v.toFixed(1) + '%';
+}
+
+function adjustedSection(c, peers) {
+  const A = c.adjusted, M = S.adjusted_metrics || [];
+  if (!A || !A.seasons || !A.seasons.length) return '';
+  const of = A.of;
+  const list = xs => xs.map(x => `<b>${esc(x.noun)}</b> <span class="muted">(#${x.rank}/${of})</span>`).join(', ');
+  const head = `<tr><th>Season</th>${M.map(m => `<th class="num" title="${m.higher_better ? 'Higher is better' : 'Lower is better'}">${esc(m.label)}</th>`).join('')}</tr>`;
+  const cell = (k, v) => v ? `<td class="num ${v.z != null ? zClass(v.z) : ''}" title="Expected ${fmtAdj(k, v.exp)} from these players' past seasons; actual ${fmtAdj(k, v.act)}; z ${v.z ?? '–'} vs the league that season">${fmtAdj(k, v.act)}<div class="rk">exp ${fmtAdj(k, v.exp)}</div></td>` : '<td class="num">–</td>';
+  const rows = [...A.seasons].reverse().map(r => `<tr><td class="nowrap">${seasonLabel(r.season)}</td>${M.map(m => cell(m.key, r.metrics[m.key])).join('')}</tr>`).join('');
+  const avg = `<tr class="sum"><td>Average change (z)</td>${M.map(m => { const a = A.avg[m.key]; return a ? `<td class="num ${zClass(a.z)}">${a.z >= 0 ? '+' : ''}${a.z.toFixed(2)}</td>` : '<td></td>'; }).join('')}</tr>`;
+  const rk = `<tr class="sum"><td>Rank among ${esc(peers)}</td>${M.map(m => { const a = A.avg[m.key]; return a && a.rank ? `<td class="num strong">${a.rank} / ${a.of}</td>` : '<td></td>'; }).join('')}</tr>`;
+  return `<h3>Coaching-adjusted strengths and weaknesses (normalized)</h3>
+    <p class="lede">The roster profile above partly reflects the players a coach inherited. Here, each season compares the team's <b>actual</b> rates with what <b>the same players</b> were expected to produce, from their previous three seasons (recency-weighted) and the minutes he gave them. The change is compared with all 30 teams that season (z-score), averaged over his seasons and ranked against the other ${esc(peers)}. Shooting stats are usage-weighted; rebound, assist, steal and block rates add up across the five on the floor; offense and defense use offensive and defensive BPM.</p>
+    <div class="stat-tiles" style="margin-bottom:12px">
+      <div class="tile"><div class="k">Normalized strengths</div><div class="small">${A.strengths && A.strengths.length ? list(A.strengths) : `<span class="muted">none in the top third of ${esc(peers)}</span>`}</div></div>
+      <div class="tile"><div class="k">Normalized weaknesses</div><div class="small">${A.weaknesses && A.weaknesses.length ? list(A.weaknesses) : `<span class="muted">none in the bottom third of ${esc(peers)}</span>`}</div></div>
+    </div>
+    <div class="table-wrap"><table class="style-table"><thead>${head}</thead><tbody>${rows}${avg}${rk}</tbody></table></div>
+    <p class="small muted">Each cell: the team's actual rate (big) and the rate expected from its players' track records (small); the color is how that change compares with every team that season. Only players with NBA history are compared.</p>`;
+}
+
 function otherRuns(c) {
   const runs = c.other_runs || [];
   if (!runs.length) return '';
@@ -418,6 +447,7 @@ function otherRuns(c) {
             <div class="tile"><div class="k">Rating</div><div class="v">${pill(r.rating)}</div></div>
           </div></div>
         ${styleSection(r, 'coach', r.current ? 'current coaches' : 'former coaches')}
+        ${adjustedSection(r, r.current ? 'current coaches' : 'former coaches')}
         <p class="small"><a href="${link}">Season-by-season details for this run →</a></p></div>`;
     }).join('')}`;
 }
@@ -450,6 +480,7 @@ async function renderCoach(id, former) {
       <tr class="sum"><td>Average</td><td class="num">${c.rows.reduce((a, r) => a + r.w, 0)}-${c.rows.reduce((a, r) => a + r.l, 0)}</td><td class="hide-sm"></td><td></td><td></td>
         <td class="num ${zCls(c.avg)}"><span class="strong">${sgn(c.avg)}</span></td><td class="hide-sm"></td><td class="hide-sm"></td></tr></tbody></table></div>
     ${styleSection(c, 'coach', former ? 'former coaches' : 'current coaches')}
+    ${adjustedSection(c, former ? 'former coaches' : 'current coaches')}
     ${otherRuns(c)}`;
 }
 
@@ -490,10 +521,10 @@ async function renderOutlookTeam(team) {
         <div class="tile"><div class="k">Projected record</div><div class="v">${Math.round(t.wins)}-${82 - Math.round(t.wins)}</div></div>
       </div></div>
     <h3>Projected rotation</h3>
-    <p class="lede">Ordered by projected minutes. <b>Games</b> are his projected games played (recent games regressed toward 65; two-way players at most 50), and <b>min / game</b> = projected minutes ÷ games. <b>Impact</b> is his projected Box Plus/Minus, and <b>contribution</b> his share of the team's expectation score (minutes × impact vs league average, in points per 100). Rookies and newcomers get a bigger role where the roster's veterans at their position (guard / wing / big) fall short of the league's usual minutes.</p>
+    <p class="lede">Ordered by projected minutes. <b>Games</b> are his projected games played (recent games regressed toward 65; two-way players at most 50), and <b>min / game</b> = projected minutes ÷ games. <b>Impact</b> is his projected impact: Box Plus/Minus blended 50/50 with EPM in seasons where EPM exists (2025-26 so far), and <b>contribution</b> his share of the team's expectation score (minutes × impact vs league average, in points per 100). Rookies and newcomers get a bigger role where the roster's veterans at their position (guard / wing / big) fall short of the league's usual minutes.</p>
     <div class="table-wrap"><table>
       <thead><tr><th>#</th><th>Player</th><th class="num">Age</th><th class="num">Pos</th><th class="hide-sm">Last season</th>
-        <th class="num">Games</th><th class="num">Min / game</th><th class="num hide-sm">Minutes</th><th class="num">Impact (BPM)</th><th class="num">Contribution</th></tr></thead>
+        <th class="num">Games</th><th class="num">Min / game</th><th class="num hide-sm">Minutes</th><th class="num" title="Projected impact: Box Plus/Minus blended 50/50 with EPM for seasons where EPM exists">Impact (BPM+EPM)</th><th class="num">Contribution</th></tr></thead>
       <tbody>${t.players.map((p, i) => {
         const c = p.college;
         const note = p.bpm_basis === 'history' ? 'projected from last 3 seasons'
@@ -506,7 +537,7 @@ async function renderOutlookTeam(team) {
           ${c ? `<div class="rk">${esc(c.season)} ${esc(c.college || '')}: ${(c.pts40).toFixed(1)} pts, ${(c.trb40).toFixed(1)} reb, ${(c.ast40).toFixed(1)} ast per 40 · ${(c.ts * 100).toFixed(1)}% TS</div>` : ''}</td>
         <td class="num">${p.age ?? '–'}</td>
         <td class="num">${esc(p.pos || '–')}</td>
-        <td class="hide-sm small">${p.last ? `${p.last.team === 'TOT' ? 'multiple teams' : p.last.team}: ${p.last.g ?? '?'} g, ${p.last.mp} min, BPM ${sgn(p.last.bpm, 1)}` : '<span class="muted">did not play</span>'}</td>
+        <td class="hide-sm small">${p.last ? `${p.last.team === 'TOT' ? 'multiple teams' : p.last.team}: ${p.last.g ?? '?'} g, ${p.last.mp} min, BPM ${sgn(p.last.bpm, 1)}${p.last.epm != null ? `, EPM ${sgn(p.last.epm, 1)}` : ''}` : '<span class="muted">did not play</span>'}</td>
         <td class="num">${p.g}</td>
         <td class="num strong">${p.mpg}</td>
         <td class="num hide-sm">${p.mp.toLocaleString()}</td>
