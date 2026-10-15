@@ -310,8 +310,11 @@ function styleSection(d, who = 'GM', peers = 'GMs') {
   return `<h3>Roster profile (value set)</h3>
     <p class="lede">What this ${who}'s teams were good and bad at, season by season (${st.seasons.length} completed season${st.seasons.length > 1 ? 's' : ''} in charge${who === 'coach' ? ', counting seasons he coached at least half of' : ''}). Strengths and weaknesses are relative to the other ${peers}. Each cell is the team's rate and its league rank that season; colors compare it with the other 29 teams that year (z-score; for turnovers and points allowed, lower is better), so different eras are comparable.</p>
     <div class="stat-tiles" style="margin-bottom:12px">
-      <div class="tile"><div class="k">Strengths</div><div class="small">${st.strengths.length ? list(st.strengths) : `<span class="muted">none in the top third of ${peers}</span>`}</div></div>
-      <div class="tile"><div class="k">Weaknesses</div><div class="small">${st.weaknesses.length ? list(st.weaknesses) : `<span class="muted">none in the bottom third of ${peers}</span>`}</div></div>
+      <div class="tile"><div class="k">Strengths${d.adjusted ? ' (raw)' : ''}</div><div class="small">${st.strengths.length ? list(st.strengths) : `<span class="muted">none in the top third of ${peers}</span>`}</div></div>
+      <div class="tile"><div class="k">Weaknesses${d.adjusted ? ' (raw)' : ''}</div><div class="small">${st.weaknesses.length ? list(st.weaknesses) : `<span class="muted">none in the bottom third of ${peers}</span>`}</div></div>
+      ${d.adjusted && d.adjusted.avg && Object.keys(d.adjusted.avg).length ? `
+      <div class="tile tile-adj"><div class="k">Normalized strengths <span class="muted">(vs roster expectation)</span></div><div class="small">${(d.adjusted.strengths || []).length ? adjList(d.adjusted.strengths, d.adjusted.of) : `<span class="muted">none in the top third of ${peers}</span>`}</div></div>
+      <div class="tile tile-adj"><div class="k">Normalized weaknesses <span class="muted">(vs roster expectation)</span></div><div class="small">${(d.adjusted.weaknesses || []).length ? adjList(d.adjusted.weaknesses, d.adjusted.of) : `<span class="muted">none in the bottom third of ${peers}</span>`}</div></div>` : ''}
       <div class="tile"><div class="k">Overall level</div><div class="v">#${st.level_rank} / ${of}</div><div class="small muted">average z ${st.level >= 0 ? '+' : ''}${st.level}</div></div>
       <div class="tile"><div class="k">Roster balance</div><div class="v">#${st.balance_rank} / ${of}</div><div class="small muted">avg shortfall ${st.shortfall} (0 = no weak spots)</div></div>
       <div class="tile"><div class="k">Specialization</div><div class="v">${st.spread >= 0.8 ? 'Specialist' : st.spread >= 0.5 ? 'Mixed' : 'Generalist'}</div><div class="small muted">spread ${st.spread} · #${st.spec_rank} most specialized</div></div>
@@ -410,15 +413,27 @@ function fmtAdj(key, v) {
   return v.toFixed(1) + '%';
 }
 
+function fmtDelta(key, d) {
+  if (d == null) return '–';
+  if (key === 'ts' || key === '3par') return sgn(d * 100, 1) + ' pts';
+  if (key === 'ftr') return sgn(d, 3);
+  if (key === 'off' || key === 'def') return sgn(d, 1);
+  return sgn(d, 1) + ' pts';
+}
+
+function adjList(xs, of) {
+  return xs.map(x => `<b>${esc(x.noun)}</b> <span class="${(x.key === 'tov' ? -x.diff : x.diff) >= 0 ? 'pos' : 'neg'}">${fmtDelta(x.key, x.diff)}</span> <span class="muted">(#${x.rank}/${of})</span>`).join(', ');
+}
+
 function adjustedSection(c, peers) {
   const A = c.adjusted, M = S.adjusted_metrics || [];
   if (!A || !A.seasons || !A.seasons.length) return '';
   const of = A.of;
-  const list = xs => xs.map(x => `<b>${esc(x.noun)}</b> <span class="muted">(#${x.rank}/${of})</span>`).join(', ');
+  const list = xs => adjList(xs, of);
   const head = `<tr><th>Season</th>${M.map(m => `<th class="num" title="${m.higher_better ? 'Higher is better' : 'Lower is better'}">${esc(m.label)}</th>`).join('')}</tr>`;
-  const cell = (k, v) => v ? `<td class="num ${v.z != null ? zClass(v.z) : ''}" title="Expected ${fmtAdj(k, v.exp)} from these players' past seasons; actual ${fmtAdj(k, v.act)}; z ${v.z ?? '–'} vs the league that season">${fmtAdj(k, v.act)}<div class="rk">exp ${fmtAdj(k, v.exp)}</div></td>` : '<td class="num">–</td>';
+  const cell = (k, v) => v ? `<td class="num ${v.z != null ? zClass(v.z) : ''}" title="Expected ${fmtAdj(k, v.exp)} from these players' past seasons; actual ${fmtAdj(k, v.act)}; z ${v.z ?? '–'} vs the league that season">${fmtAdj(k, v.act)}<div class="rk">exp ${fmtAdj(k, v.exp)} · Δ ${fmtDelta(k, v.diff)}</div></td>` : '<td class="num">–</td>';
   const rows = [...A.seasons].reverse().map(r => `<tr><td class="nowrap">${seasonLabel(r.season)}</td>${M.map(m => cell(m.key, r.metrics[m.key])).join('')}</tr>`).join('');
-  const avg = `<tr class="sum"><td>Average change (z)</td>${M.map(m => { const a = A.avg[m.key]; return a ? `<td class="num ${zClass(a.z)}">${a.z >= 0 ? '+' : ''}${a.z.toFixed(2)}</td>` : '<td></td>'; }).join('')}</tr>`;
+  const avg = `<tr class="sum"><td>Average change vs expected</td>${M.map(m => { const a = A.avg[m.key]; return a ? `<td class="num ${zClass(a.z)}">${fmtDelta(m.key, a.diff)}<div class="rk">z ${a.z >= 0 ? '+' : ''}${a.z.toFixed(2)} vs league</div></td>` : '<td></td>'; }).join('')}</tr>`;
   const rk = `<tr class="sum"><td>Rank among ${esc(peers)}</td>${M.map(m => { const a = A.avg[m.key]; return a && a.rank ? `<td class="num strong">${a.rank} / ${a.of}</td>` : '<td></td>'; }).join('')}</tr>`;
   return `<h3>Coaching-adjusted strengths and weaknesses (normalized)</h3>
     <p class="lede">The roster profile above partly reflects the players a coach inherited. Here, each season compares the team's <b>actual</b> rates with what <b>the same players</b> were expected to produce, from their previous three seasons (recency-weighted) and the minutes he gave them. The change is compared with all 30 teams that season (z-score), averaged over his seasons and ranked against the other ${esc(peers)}. Shooting stats are usage-weighted; rebound, assist, steal and block rates add up across the five on the floor; offense and defense use offensive and defensive BPM.</p>
@@ -427,7 +442,7 @@ function adjustedSection(c, peers) {
       <div class="tile"><div class="k">Normalized weaknesses</div><div class="small">${A.weaknesses && A.weaknesses.length ? list(A.weaknesses) : `<span class="muted">none in the bottom third of ${esc(peers)}</span>`}</div></div>
     </div>
     <div class="table-wrap"><table class="style-table"><thead>${head}</thead><tbody>${rows}${avg}${rk}</tbody></table></div>
-    <p class="small muted">Each cell: the team's actual rate (big) and the rate expected from its players' track records (small); the color is how that change compares with every team that season. Only players with NBA history are compared.</p>`;
+    <p class="small muted">Each cell: the team's actual rate (big), the rate expected from its players' track records and Δ = actual − expected (small); the color is how that change compares with every team that season. Ranks compare each coach's change with the league's typical change, so a small positive Δ can still rank low if most teams improved more. Only players with NBA history are compared.</p>`;
 }
 
 function otherRuns(c) {

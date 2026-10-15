@@ -163,3 +163,7 @@ details.move > summary { list-style: none; cursor: pointer; }
 .z-vg .rk, .z-vb .rk { color: inherit; opacity: .8; }
 
 .foot { padding: 0 max(16px, calc((100vw - 1400px) / 2)) 28px; }
+
+.pos { color: var(--g-ink); font-weight: 650; }
+.neg { color: var(--b-ink); font-weight: 650; }
+.tile-adj { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
