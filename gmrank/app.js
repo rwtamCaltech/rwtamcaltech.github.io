@@ -322,6 +322,41 @@ function styleSection(d, who = 'GM', peers = 'GMs') {
     <div class="table-wrap"><table class="style-table"><thead>${head}</thead><tbody>${rows}${avg}${gmr}</tbody></table></div>`;
 }
 
+/* ---------- roster brittleness (depth beyond the top two) ---------- */
+function depthSection(d) {
+  const dp = d.depth, M = S.depth_metrics;
+  if (!dp || !dp.seasons || !dp.seasons.length) return '';
+  const sg = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`;
+  const list = xs => xs.map(x => `<b>${esc(x.noun)}</b> <span class="muted">(#${x.gm_rank}/${dp.of})</span>`).join(', ');
+  const head = `<tr><th>Season</th><th class="num">Depth score</th>${M.map(m => `<th class="num" title="${m.higher_better ? 'Higher is better' : 'Lower is better'} (z oriented so + is better)">${esc(m.label)}</th>`).join('')}</tr>`;
+  const cell = c => c ? `<td class="num ${zClass(c.v * 2)}">${sg(c.v)}<div class="rk">#${c.rank}</div></td>` : '<td class="num">–</td>';
+  const pz = (p, k) => { const v = p.z[k]; if (v == null) return '<td class="num">–</td>';
+    const cut = p.omitted.includes(k); return `<td class="num ${cut ? 'muted' : zClass(v)}" title="${cut ? 'Top two on the team: left out of the average' : ''}">${cut ? '<s>' + sg(v) + '</s>' : sg(v)}</td>`; };
+  const rows = [...dp.seasons].reverse().map((r, i) => `
+    <tr class="depth-row" data-i="${i}" style="cursor:pointer"><td class="nowrap">▸ ${seasonLabel(r.season)}${r.record && r.record[0] != null ? `<div class="rk">${r.record[0]}-${r.record[1]}</div>` : ''}</td>
+      <td class="num strong ${zClass(r.score * 2)}">${sg(r.score)}<div class="rk">#${r.score_rank}/${r.of}</div></td>${M.map(m => cell(r.cats[m.key])).join('')}</tr>
+    <tr class="depth-players" data-i="${i}" hidden><td colspan="${M.length + 2}"><table class="style-table"><thead><tr><th>Player</th><th class="num">G</th><th class="num">Min/g</th>${M.map(m => `<th class="num">${esc(m.label)}</th>`).join('')}</tr></thead><tbody>
+      ${r.players.map(p => `<tr><td class="nowrap">${esc(p.name)} <span class="muted small">${esc(p.pos)}</span></td><td class="num">${p.g}</td><td class="num">${p.mpg}</td>${M.map(m => pz(p, m.key)).join('')}</tr>`).join('')}
+    </tbody></table></td></tr>`).join('');
+  const avg = `<tr class="sum"><td>Average</td><td class="num strong">${sg(dp.score)}<div class="rk">avg rank ${dp.score_rank_avg}</div></td>${M.map(m => { const a = dp.avg[m.key]; return a ? `<td class="num ${zClass(a.v * 2)}">${sg(a.v)}<div class="rk">avg rank ${a.rank_avg}</div></td>` : '<td></td>'; }).join('')}</tr>`;
+  const gmr = `<tr class="sum"><td>Rank among GMs</td><td class="num strong">${dp.rank} / ${dp.of}</td>${M.map(m => { const a = dp.avg[m.key]; return a ? `<td class="num strong">${a.gm_rank} / ${a.of}</td>` : '<td></td>'; }).join('')}</tr>`;
+  return `<h3>Roster brittleness (non-top-heavy value set)</h3>
+    <p class="lede">Can the rest of the roster carry the load when stars get hurt? Each season, every player with 15+ games and 10+ minutes a game for the team is compared with his position group (guards, wings, bigs) league-wide that season (z-score; + is better, so for turnovers and points allowed lower raw numbers score higher). In each category the team's <b>top two players are left out</b> and the rest are averaged; the small number is that average's rank among the 30 teams. The depth score is the mean of the ten. Click a season to see the players (struck-through values are the top two that were left out).</p>
+    <div class="stat-tiles" style="margin-bottom:12px">
+      <div class="tile"><div class="k">Depth rank</div><div class="v">#${dp.rank} / ${dp.of}</div><div class="small muted">${dp.rank <= dp.of / 3 ? 'deep (least brittle)' : dp.rank > dp.of * 2 / 3 ? 'top-heavy (brittle)' : 'middle of the pack'} · avg ${sg(dp.score)}</div></div>
+      <div class="tile"><div class="k">Depth strengths</div><div class="small">${(dp.strengths || []).length ? list(dp.strengths) : '<span class="muted">none in the top third of GMs</span>'}</div></div>
+      <div class="tile"><div class="k">Depth weaknesses</div><div class="small">${(dp.weaknesses || []).length ? list(dp.weaknesses) : '<span class="muted">none in the bottom third of GMs</span>'}</div></div>
+    </div>
+    <div class="table-wrap"><table class="style-table depth-table"><thead>${head}</thead><tbody>${rows}${avg}${gmr}</tbody></table></div>`;
+}
+function bindDepth(view) {
+  view.querySelectorAll('.depth-row').forEach(tr => tr.addEventListener('click', () => {
+    const p = view.querySelector(`.depth-players[data-i="${tr.dataset.i}"]`);
+    p.hidden = !p.hidden;
+    tr.cells[0].innerHTML = tr.cells[0].innerHTML.replace(p.hidden ? '▾' : '▸', p.hidden ? '▸' : '▾');
+  }));
+}
+
 async function renderGM(team, former = false) {
   const view = $('#view');
   const d = await getJSON(former ? `data/gm/former/${team}.json` : `data/gm/${team}.json`);
@@ -338,10 +373,12 @@ async function renderGM(team, former = false) {
     <div class="toolbar">${initialToggle()}<span class="small muted">Off: only resolved scores (what actually happened; unfinished parts estimated from the latest production).</span></div>
     <h3>Scores by category</h3>${categoryTable(sc)}
     ${styleSection(d)}
+    ${depthSection(d)}
     <h3>Best and worst moves</h3>${bestWorst(d)}
     ${movesSection(d.items)}`;
   bindMoves(view, d.items);
   bindInitialToggle(view);
+  bindDepth(view);
 }
 
 async function renderTeam(team) {
@@ -563,7 +600,54 @@ async function renderOutlookTeam(team) {
         <td class="num hide-sm">${t.players.reduce((a, p) => a + p.mp, 0).toLocaleString()}</td><td></td><td class="num strong" title="Roster projection (the players' contributions add up to this)">${sgn(t.roster_net)}</td></tr></tbody></table></div>
     <p class="small muted">Contributions add up to the roster projection (${sgn(t.roster_net)}). The expectation score blends it 75/25 with the team's actual net rating last season (${t.last_net == null ? '–' : sgn(t.last_net)} vs league average), which tracks real results better in the backtest.</p>
     ${P.college_model ? `<p class="small muted">College model: fitted on ${P.college_model.samples} past draftees; typical error ${P.college_model.mae_model} BPM vs ${P.college_model.mae_prior} for draft slot alone (leave-one-draft-year-out) — ${P.college_model.used ? 'used for rookies with college stats' : 'not better than draft slot, so not used'}.</p>` : ''}
-    ${bt.length ? `<p class="small muted">Backtest (past seasons rebuilt from each season's roster with projected minutes): correlation with real net rating ${bt.map(r => `${seasonLabel(r.season)} ${r.corr}`).join(', ')}; typical miss ${bt.map(r => r.mae_net).join(' / ')} points.</p>` : ''}`;
+    ${bt.length ? `<p class="small muted">Backtest (past seasons rebuilt from each season's roster with projected minutes): correlation with real net rating ${bt.map(r => `${seasonLabel(r.season)} ${r.corr}`).join(', ')}; typical miss ${bt.map(r => r.mae_net).join(' / ')} points.</p>` : ''}
+    ${projProfileSection(t, P)}
+    ${projDepthSection(t, P)}`;
+}
+
+/* ---------- projected roster profile + brittleness (Outlook team page) ---------- */
+function fmtPlayerRate(key, v) {
+  if (v == null) return '–';
+  if (key === 'ppp' || key === 'drtg') return v.toFixed(1);
+  if (['ts', '3par'].includes(key)) return (v * 100).toFixed(1) + '%';
+  if (key === 'ftr') return v.toFixed(3);
+  return v.toFixed(1) + '%';
+}
+const rankClass = (rank, n) => rank <= 10 ? 'z-g' : rank > n - 10 ? 'z-b' : '';   // top 10 green, bottom 10 red
+function projProfileSection(t, P) {
+  const pr = t.profile, M = P.profile_metrics, n = P.teams.length;
+  if (!pr || !pr.cats) return '';
+  const list = xs => xs.map(x => `<b>${esc(x.noun)}</b> <span class="muted">(#${x.rank}/${n})</span>`).join(', ');
+  const sg = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`;
+  return `<h3>Projected roster profile</h3>
+    <p class="lede">What this rotation should be good and bad at, from each player's recent individual rates (last three seasons, recency-weighted; players with no NBA history get last season's average for their position group) weighted by his projected minutes (shooting, turnovers, foul drawing, 3-point volume and points per possession also by usage). Points per possession and points allowed use individual offensive and defensive ratings (per 100 possessions); the other rates are the average player on the floor. Each cell is ranked against the other ${n - 1} projected rosters: top 10 green, bottom 10 red. 3PT volume is the share of shots that are threes (3PA / FGA), not the raw number of threes.</p>
+    <div class="stat-tiles" style="margin-bottom:12px">
+      <div class="tile"><div class="k">Projected strengths</div><div class="small">${pr.strengths.length ? list(pr.strengths) : '<span class="muted">none in the top third</span>'}</div></div>
+      <div class="tile"><div class="k">Projected weaknesses</div><div class="small">${pr.weaknesses.length ? list(pr.weaknesses) : '<span class="muted">none in the bottom third</span>'}</div></div>
+      <div class="tile"><div class="k">Overall level</div><div class="v">#${pr.level_rank} / ${n}</div><div class="small muted">average z ${sg(pr.level)}</div></div>
+    </div>
+    <div class="table-wrap"><table class="style-table"><thead><tr><th></th>${M.map(m => `<th class="num" title="${m.higher_better ? 'Higher is better' : 'Lower is better'}">${esc(m.label)}</th>`).join('')}</tr></thead><tbody>
+      <tr><td>Projected</td>${M.map(m => { const c = pr.cats[m.key]; return c ? `<td class="num ${rankClass(c.rank, n)}" title="z ${sg(c.z)} vs the other projected rosters">${fmtPlayerRate(m.key, c.v)}<div class="rk">#${c.rank}</div></td>` : '<td class="num">–</td>'; }).join('')}</tr>
+    </tbody></table></div>`;
+}
+function projDepthSection(t, P) {
+  const dp = t.depth, M = P.profile_metrics, n = P.teams.length;
+  if (!dp || !dp.cats || dp.score == null) return '';
+  const sg = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`;
+  const list = xs => xs.map(x => `<b>${esc(x.noun)}</b> <span class="muted">(#${x.rank}/${n})</span>`).join(', ');
+  const pz = (p, k) => { const v = p.z[k]; if (v == null) return '<td class="num">–</td>';
+    const cut = p.omitted.includes(k); return `<td class="num ${cut ? 'muted' : zClass(v)}">${cut ? '<s>' + sg(v) + '</s>' : sg(v)}</td>`; };
+  return `<h3>Projected roster brittleness</h3>
+    <p class="lede">The GM-page brittleness test applied to this projection: every player projected for 15+ games and 10+ minutes a game, his recent rates compared with his position group (guards, wings, bigs) league-wide last season (z-score, + is better). In each category the <b>top two are left out</b> and the rest averaged, then ranked against the other projected rosters. Struck-through values are the top two; <i>est.</i> marks players with no NBA history (position average).</p>
+    <div class="stat-tiles" style="margin-bottom:12px">
+      <div class="tile"><div class="k">Depth rank</div><div class="v">#${dp.rank} / ${n}</div><div class="small muted">${dp.rank <= n / 3 ? 'deep (least brittle)' : dp.rank > n * 2 / 3 ? 'top-heavy (brittle)' : 'middle of the pack'} · depth score ${sg(dp.score)}</div></div>
+      <div class="tile"><div class="k">Depth strengths</div><div class="small">${dp.strengths.length ? list(dp.strengths) : '<span class="muted">none in the top third</span>'}</div></div>
+      <div class="tile"><div class="k">Depth weaknesses</div><div class="small">${dp.weaknesses.length ? list(dp.weaknesses) : '<span class="muted">none in the bottom third</span>'}</div></div>
+    </div>
+    <div class="table-wrap"><table class="style-table"><thead><tr><th>Player</th><th class="num">G</th><th class="num">Min/g</th>${M.map(m => `<th class="num">${esc(m.label)}</th>`).join('')}</tr></thead><tbody>
+      ${dp.players.map(p => `<tr><td class="nowrap">${esc(p.name)} <span class="muted small">${esc(p.pos || '')}${p.est ? ' · est.' : ''}</span></td><td class="num">${p.g}</td><td class="num">${p.mpg}</td>${M.map(m => pz(p, m.key)).join('')}</tr>`).join('')}
+      <tr class="sum"><td>Average without the top two</td><td></td><td></td>${M.map(m => { const c = dp.cats[m.key]; return c ? `<td class="num strong ${rankClass(c.rank, n)}">${sg(c.v)}<div class="rk">#${c.rank}</div></td>` : '<td></td>'; }).join('')}</tr>
+    </tbody></table></div>`;
 }
 
 function renderMethod() {
