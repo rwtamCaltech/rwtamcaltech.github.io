@@ -543,7 +543,7 @@ function renderOutlook() {
   if (!P) { view.innerHTML = '<p class="empty">No roster projection yet.</p>'; return; }
   view.innerHTML = `
     <h2>${seasonLabel(P.season)} Outlook</h2>
-    <p class="lede">The <b>expectation score</b> projects each team's net rating (points per 100 possessions vs an average team) from its current roster: every player's projected impact (Box Plus/Minus from his last three seasons, with aging; rookies from their draft slot and college stats) weighted by his projected minutes and games, with each roster summing to the same 19,680 minutes of an 82-game season. Click a team for its projected rotation.</p>
+    <p class="lede">The <b>expectation score</b> projects each team's net rating (points per 100 possessions vs an average team) from its current roster: every player's projected impact (Box Plus/Minus from his last three seasons, with aging; rookies from their draft slot and college stats) weighted by his projected minutes and games, with each roster summing to the same 19,680 minutes of an 82-game season. Click a team for its projected rotation. <a href="#injuries"><b>Severe injuries →</b></a> who will miss games this season, why, and for how long.</p>
     <div class="table-wrap"><table>
       <thead><tr><th>#</th><th>Team</th><th class="num" title="Projected net rating, points per 100 possessions vs an average team">Expectation score</th><th class="num hide-sm" title="From the projected roster alone">Roster</th><th class="num hide-sm" title="Actual net rating last season (vs league average), weighted 25%">Last season</th><th class="num">Projected wins</th><th class="hide-sm">Top contributors</th><th class="num hide-sm">Roster</th></tr></thead>
       <tbody>${P.teams.map(t => `<tr class="link" data-href="#outlook/${t.team}">
@@ -650,6 +650,134 @@ function projDepthSection(t, P) {
     </tbody></table></div>`;
 }
 
+async function renderInjuries() {
+  const view = $('#view');
+  const P = await getJSON('data/projection.json');
+  const rows = P.injuries || [];
+  view.innerHTML = `<a class="back" href="#outlook">← Outlook</a>
+    <h2>Severe injuries, ${seasonLabel(P.season)}</h2>
+    <p class="lede">Long-term injuries built into the Outlook: who is out, the nature of the injury, the estimated return and how many games he is projected to play. Games missed by the return date = days after opening night × 82/170. Some calls are set by hand and are deliberately pessimistic (recurring or unexplained injuries, older players coming back from major surgery). The minutes they miss go to teammates. Sources: team reports and ESPN's injury tracker; return dates move, so this is a snapshot.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Team</th><th>Player</th><th>Injury</th><th class="num">Est. return</th><th class="num" title="Games missed by the estimated return date">Games missed</th><th class="num">Projected games</th><th class="num">Min / game</th><th class="hide-sm">Last season</th></tr></thead>
+      <tbody>${rows.map(i => `<tr>
+        <td><span class="team-tag">${i.team}</span><a href="#outlook/${i.team}">${esc(i.team)}</a></td>
+        <td class="strong">${esc(i.player)}${i.note ? `<div class="rk">${esc(i.note)}</div>` : ''}</td>
+        <td>${esc(i.injury)}</td>
+        <td class="num nowrap">${i.out_for_season ? '<span class="pill VERY_BAD">OUT FOR SEASON</span>' : i.est_return ? fmtDate(i.est_return) : '–'}</td>
+        <td class="num">${i.missed ?? '–'}</td>
+        <td class="num strong">${i.games ?? '–'}${i.set_games ? ' <span class="rk" title="Set by hand (pessimistic)">set</span>' : ''}</td>
+        <td class="num">${i.mpg ?? '–'}</td>
+        <td class="hide-sm small">${i.last ? `${i.last.g} g, ${i.last.mpg} min/g, BPM ${sgn(i.last.bpm, 1)}` : '<span class="muted">did not play</span>'}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ---------- this season, game by game (2026-27 Teams tab) ---------- */
+const gradeCls = g => !g || g === 'N/A' ? 'N_A' : g[0] === 'A' ? 'VERY_GOOD' : g === 'B+' || g === 'B' ? 'GOOD' : g === 'B-' || g === 'C+' ? 'OK' : g[0] === 'C' ? 'BAD' : 'VERY_BAD';
+const gradePill = g => `<span class="pill ${gradeCls(g)}">${esc(g || 'N/A')}</span>`;
+const gameLabel = g => `${g.away} ${g.away_pts} @ ${g.home} ${g.home_pts}`;
+async function seasonData() { return S._season || (S._season = await getJSON('data/season/season.json')); }
+function teamSelect(Z, team) {
+  return `<label class="small">Team <select id="season-team"><option value="">All teams</option>${[...Z.teams].sort((a, b) => a.team_name.localeCompare(b.team_name)).map(t => `<option value="${t.team}"${t.team === team ? ' selected' : ''}>${esc(t.team_name)}</option>`).join('')}</select></label>`;
+}
+function bindTeamSelect(view) {
+  const sel = view.querySelector('#season-team');
+  if (sel) sel.addEventListener('change', () => { location.hash = sel.value ? `#season/${sel.value}` : '#season'; });
+}
+function gamesTable(games, team) {
+  let run = 0;
+  const tally = {};
+  if (team) [...games].reverse().forEach(g => { run += (g.home === team ? 1 : -1) * g.diff; tally[g.id] = run; });
+  return `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Game</th><th class="num" title="Expected home margin (points), from the players who played and their minutes, plus home court">Expected (home)</th><th class="num">Actual (home)</th>
+    <th class="num" title="Actual - expected margin; + = ${team ? 'this team' : 'home team'} beat its expectation">${team ? 'Over / under' : 'Home over / under'}</th>${team ? '<th class="num">Coach tally</th>' : ''}<th class="num hide-sm" title="Injury score: what absent rotation players would have added over replacement (points per 100)">Injuries (away / home)</th></tr></thead><tbody>
+    ${games.map(g => { const d = team && g.away === team ? -g.diff : g.diff; return `<tr class="link" data-href="#game/${g.id}">
+      <td class="nowrap">${fmtDate(g.date)}</td><td class="nowrap"><a href="#game/${g.id}">${esc(gameLabel(g))}</a></td>
+      <td class="num">${sgn(g.exp_margin, 1)}</td><td class="num">${sgn(g.margin, 0)}</td>
+      <td class="num strong ${zCls(d / 4)}">${sgn(d, 1)}</td>${team ? `<td class="num">${sgn(tally[g.id], 1)}</td>` : ''}
+      <td class="num hide-sm">${g.inj_away.toFixed(1)} / ${g.inj_home.toFixed(1)}</td></tr>`; }).join('')}</tbody></table></div>`;
+}
+async function renderSeason(team) {
+  const view = $('#view');
+  const Z = await seasonData();
+  const lede = `<p class="lede">Every ${seasonLabel(Z.season)} game, newest first, updated nightly (2 AM Pacific). Each team's <b>expectation</b> uses the players who actually played and their minutes: each player's expected impact is his Outlook projection (last three seasons, recency- and games-weighted; rookies from draft slot and college stats), blended with his box-score impact this season once he has ${Z.min_games} games (games ÷ (games + ${Z.season_k})). Expected margin = home − away + ${Z.home_edge} for home court. <b>Coach score</b> adds up actual − expected margins for his team (points), so + means the team beat what its players should have produced. The <b>injury score</b> adds up what absent rotation players would have added over a replacement-level fill-in. Click a game for its box score and player grades.</p>`;
+  if (!team) {
+    view.innerHTML = `<h2>${seasonLabel(Z.season)} Teams</h2>${lede}
+      <div class="toolbar">${teamSelect(Z)} <span class="small muted">Updated ${esc(Z.updated.replace('T', ' '))} · ${Z.games.length} games</span></div>
+      <h3>Teams by coach score (over / under expectation)</h3>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>Team</th><th>Coach</th><th class="num">Record</th><th class="num">Coach score</th><th class="num">Per game</th><th class="num">Injury score</th><th class="hide-sm">Top grade</th></tr></thead><tbody>
+      ${Z.teams.filter(t => t.games).map(t => `<tr class="link" data-href="#season/${t.team}"><td class="rank">${t.coach_rank}</td>
+        <td class="name"><span class="team-tag">${t.team}</span><a href="#season/${t.team}">${esc(t.team_name)}</a></td><td>${esc(t.coach || '–')}</td>
+        <td class="num">${t.w}-${t.l}</td><td class="num strong ${zCls(t.coach_score / 8)}">${sgn(t.coach_score, 1)}</td><td class="num">${sgn(t.coach_per_game, 1)}</td>
+        <td class="num">${t.injury_score.toFixed(1)}</td><td class="hide-sm">${t.players[0] ? `<a href="#splayer/${t.players[0].pid}">${esc(t.players[0].name)}</a> ${gradePill(t.players[0].grade)}` : ''}</td></tr>`).join('')}</tbody></table></div>
+      <h3>Injury score (most injured first)</h3>
+      <p class="lede">What each team's absent rotation players (projected 12+ min/game) would have added over a replacement-level fill-in, added up over every game (points per 100).</p>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>Team</th><th class="num">Injury score</th><th class="num">Per game</th><th class="num">Record</th></tr></thead><tbody>
+      ${[...Z.teams].filter(t => t.games).sort((a, b) => a.injury_rank - b.injury_rank).map(t => `<tr class="link" data-href="#season/${t.team}"><td class="rank">${t.injury_rank}</td>
+        <td class="name"><span class="team-tag">${t.team}</span><a href="#season/${t.team}">${esc(t.team_name)}</a></td>
+        <td class="num strong">${t.injury_score.toFixed(1)}</td><td class="num">${(t.injury_score / t.games).toFixed(2)}</td><td class="num">${t.w}-${t.l}</td></tr>`).join('')}</tbody></table></div>
+      <h3>Top ${(Z.top_players || []).length} players by season score</h3>
+      <p class="lede">Minutes-weighted average grade score over every graded game this season (10+ minutes)${Z.top_min_games > 1 ? `; at least ${Z.top_min_games} graded games` : ''}.</p>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">Score</th><th>Grade</th></tr></thead><tbody>
+      ${(Z.top_players || []).map((p, i) => `<tr class="link" data-href="#splayer/${p.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td>
+        <td><span class="team-tag">${p.team}</span></td><td class="num">${p.graded}</td><td class="num">${p.mpg}</td><td class="num strong">${sgn(p.score, 1)}</td><td>${gradePill(p.grade)}</td></tr>`).join('')}</tbody></table></div>
+      <h3>Games</h3>${gamesTable(Z.games)}`;
+    bindTeamSelect(view);
+    bindRowLinks(view);
+    return;
+  }
+  const t = Z.teams.find(x => x.team === team);
+  const games = Z.games.filter(g => g.home === team || g.away === team);
+  const of = Z.teams.filter(x => x.games).length;
+  view.innerHTML = `<a class="back" href="#season">← ${seasonLabel(Z.season)} Teams</a>
+    <div class="hero"><div class="who"><h2>${esc(t.team_name)}</h2><p>${seasonLabel(Z.season)} · coach ${esc(t.coach || '–')} · <a href="#outlook/${team}">Outlook</a></p></div>
+      <div class="stat-tiles">
+        <div class="tile"><div class="k">Record</div><div class="v">${t.w}-${t.l}</div></div>
+        <div class="tile"><div class="k">Coach score</div><div class="v">${sgn(t.coach_score, 1)}</div><div class="small muted">${t.coach_rank ? `#${t.coach_rank} of ${of} coaches` : 'no games yet'} · ${sgn(t.coach_per_game, 1)} per game</div></div>
+        <div class="tile"><div class="k">Injury score</div><div class="v">${t.injury_score.toFixed(1)}</div><div class="small muted">${t.injury_rank ? `#${t.injury_rank} of ${of} most injured` : ''} · adds up over the season</div></div>
+      </div></div>
+    <div class="toolbar">${teamSelect(Z, team)}</div>
+    <h3>Games</h3>${games.length ? gamesTable(games, team) : '<p class="empty">No games yet.</p>'}
+    <h3>Players by grade</h3>
+    <p class="lede">Each player's season grade is his minutes-weighted average game score (games with ${10}+ minutes); click a player for every game.</p>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">Score</th><th>Grade</th></tr></thead><tbody>
+      ${t.players.map((p, i) => `<tr class="link" data-href="#splayer/${p.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td><td class="num">${p.games}</td><td class="num">${p.mpg}</td><td class="num">${p.score == null ? '–' : sgn(p.score, 1)}</td><td>${gradePill(p.grade)}</td></tr>`).join('')}</tbody></table></div>`;
+  bindTeamSelect(view);
+  bindRowLinks(view);
+}
+async function renderGame(id) {
+  const view = $('#view');
+  const g = await getJSON(`data/season/games/${id}.json`);
+  const side = tm => {
+    const T = g.teams[tm];
+    return `<h3><span class="team-tag">${tm}</span><a href="#season/${tm}">${esc(tm)}</a> <span class="small muted">expectation ${sgn(tm === g.home ? g.exp_home : g.exp_away, 1)} · coach ${esc((tm === g.home ? g.coach_home : g.coach_away) || '–')}</span></h3>
+      <div class="table-wrap"><table><thead><tr><th>Player</th><th class="num">Min</th><th class="num">Pts</th><th class="num">Reb</th><th class="num">Ast</th><th class="num hide-sm">Stl</th><th class="num hide-sm">Blk</th><th class="num hide-sm">TO</th><th class="num">+/−</th>
+        <th class="num" title="Game impact on the BPM scale (estimated from game score per 36)">Game impact</th><th class="num" title="Expected impact going in">Expected</th><th>Grade</th></tr></thead><tbody>
+      ${T.rows.map(r => r.mp > 0 ? `<tr><td class="nowrap"><a href="#splayer/${r.pid}">${esc(r.name)}</a>${r.starter ? '' : ' <span class="muted small">bench</span>'}</td><td class="num">${r.mp.toFixed(0)}</td><td class="num">${r.pts}</td><td class="num">${r.trb}</td><td class="num">${r.ast}</td><td class="num hide-sm">${r.stl}</td><td class="num hide-sm">${r.blk}</td><td class="num hide-sm">${r.tov}</td>
+        <td class="num">${sgn(r.pm, 0)}</td><td class="num">${r.bpm == null ? '–' : sgn(r.bpm, 1)}</td><td class="num">${sgn(r.exp, 1)}</td>
+        <td title="${r.parts ? `box ${sgn(r.parts.bpm, 1)}, vs expectation ${sgn(r.parts.vs_exp, 1)}, +/- vs team ${sgn(r.parts.pm_rel, 1)}, counterparts ${sgn(r.parts.counterparts, 1)}` : 'under 10 minutes'}">${gradePill(r.grade)}${r.score != null ? ` <span class="rk">${sgn(r.score, 1)}</span>` : ''}</td></tr>`
+        : `<tr class="muted"><td>${esc(r.name)}</td><td colspan="11" class="small">${esc(r.dnp || 'Did not play')}</td></tr>`).join('')}</tbody></table></div>
+      ${T.absent.length ? `<p class="small">Missing rotation players (injury score ${(tm === g.home ? g.inj_home : g.inj_away).toFixed(1)}): ${T.absent.map(a => `${esc(a.name)} <span class="muted">(${a.mpg} min/g, impact ${sgn(a.impact, 1)})</span>`).join(', ')}</p>` : ''}`;
+  };
+  view.innerHTML = `<a class="back" href="#season">← Games</a>
+    <div class="hero"><div class="who"><h2>${esc(gameLabel(g))}</h2><p>${fmtDate(g.date)}</p></div>
+      <div class="stat-tiles">
+        <div class="tile"><div class="k">Expected</div><div class="v">${g.exp_margin >= 0 ? g.home : g.away} by ${Math.abs(g.exp_margin).toFixed(1)}</div></div>
+        <div class="tile"><div class="k">Actual</div><div class="v">${g.margin >= 0 ? g.home : g.away} by ${Math.abs(g.margin)}</div></div>
+        <div class="tile"><div class="k">Over / under</div><div class="v">${g.diff >= 0 ? g.home : g.away} ${sgn(Math.abs(g.diff), 1)}</div><div class="small muted">added to ${esc(g.coach_home || g.home)} (${sgn(g.diff, 1)}) and ${esc(g.coach_away || g.away)} (${sgn(-g.diff, 1)})</div></div>
+      </div></div>
+    <p class="lede">Grades (10+ minutes): 0.55 × his game impact (so a great box score earns an A whoever he is) + 0.30 × game impact vs his expectation + 0.15 × his +/− per 36 relative to his team's margin − 0.20 × how far his positional counterparts (same position group, similar minutes) beat their own expectations. A game impact of +12 or game score 28+ is at least an A−. Hover a grade for its parts.</p>
+    ${side(g.away)}${side(g.home)}`;
+}
+async function renderSeasonPlayer(pid) {
+  const view = $('#view');
+  const p = await getJSON(`data/season/players/${pid}.json`);
+  view.innerHTML = `<a class="back" href="#season/${p.team}">← ${esc(p.team)}</a>
+    <div class="hero"><div class="who"><h2>${esc(p.name)}</h2><p><span class="team-tag">${p.team}</span><a href="#season/${p.team}">${esc(p.team)}</a> · ${p.games} games, ${p.mpg} min/game</p></div>
+      <div class="stat-tiles"><div class="tile"><div class="k">Season grade</div><div class="v">${gradePill(p.grade)}</div><div class="small muted">${p.score == null ? 'no graded games' : `score ${sgn(p.score, 1)} over ${p.graded} graded games`}</div></div></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Game</th><th class="num">Min</th><th class="num">Pts</th><th class="num">Reb</th><th class="num">Ast</th><th class="num">+/−</th><th class="num">Game impact</th><th class="num">Expected</th><th>Grade</th></tr></thead><tbody>
+      ${[...p.log].reverse().map(x => `<tr class="link" data-href="#game/${x.id}"><td class="nowrap">${fmtDate(x.date)}</td><td class="nowrap"><a href="#game/${x.id}">${x.home ? 'vs' : '@'} ${x.opp}</a> <span class="muted small">${x.result} ${sgn(x.margin, 0)}</span></td>
+        <td class="num">${(x.mp || 0).toFixed(0)}</td><td class="num">${x.pts ?? '–'}</td><td class="num">${x.trb ?? '–'}</td><td class="num">${x.ast ?? '–'}</td><td class="num">${sgn(x.pm, 0)}</td><td class="num">${x.bpm == null ? '–' : sgn(x.bpm, 1)}</td><td class="num">${sgn(x.exp, 1)}</td><td>${gradePill(x.grade)}</td></tr>`).join('')}</tbody></table></div>`;
+  bindRowLinks(view);
+}
+
 function renderMethod() {
   const view = $('#view');
   view.innerHTML = '';
@@ -663,7 +791,7 @@ function renderMethod() {
 async function route() {
   const h = location.hash.replace(/^#/, '') || 'gms';
   const [page, arg] = h.split('/');
-  document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === (page === 'gm' || page === 'former' ? 'gms' : page === 'team' ? 'teams' : page === 'coach' || page === 'fcoach' ? 'coaches' : page)));
+  document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === (page === 'gm' || page === 'former' ? 'gms' : page === 'team' ? 'teams' : page === 'coach' || page === 'fcoach' ? 'coaches' : page === 'injuries' ? 'outlook' : page === 'game' || page === 'splayer' ? 'season' : page)));
   const view = $('#view');
   view.hidden = false;
   view.classList.remove('hide-initial');
@@ -673,6 +801,10 @@ async function route() {
     else if (page === 'coaches') renderCoaches();
     else if (page === 'outlook' && arg) await renderOutlookTeam(arg);
     else if (page === 'outlook') renderOutlook();
+    else if (page === 'injuries') await renderInjuries();
+    else if (page === 'season') await renderSeason(arg);
+    else if (page === 'game') await renderGame(arg);
+    else if (page === 'splayer') await renderSeasonPlayer(arg);
     else if (page === 'coach' && arg) await renderCoach(arg, false);
     else if (page === 'fcoach' && arg) await renderCoach(arg, true);
     else if (page === 'team' && arg) await renderTeam(arg);
