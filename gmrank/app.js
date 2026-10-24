@@ -584,7 +584,7 @@ async function renderOutlookTeam(team) {
           : p.bpm_basis === 'rookie' ? 'rookie: draft-slot average' : 'no NBA history: replacement level';
         return `<tr>
         <td class="rank">${i + 1}</td>
-        <td>${esc(p.name)}${p.exp === 'R' ? ' <span class="pill OK">ROOKIE</span>' : ''}${p.tw ? ' <span class="pill N_A">TWO-WAY</span>' : ''}${p.breakout ? ' <span class="pill GOOD" title="Young, projected for a real role, and a big jump in impact or minutes">BREAKOUT?</span>' : ''}${p.strong_finish ? ` <span class="pill GOOD" title="Game score per 36 over his last ${p.late.n} games: ${p.late.gmsc36_late} vs ${p.late.gmsc36} for the season">STRONG FINISH</span>` : ''}${p.regression ? ' <span class="pill BAD" title="Minutes per game fell below 75% of the season before (a demotion, not injuries), so no development bump">REGRESSION?</span>' : ''}
+        <td><a href="#splayer/${p.pid}">${esc(p.name)}</a>${p.exp === 'R' ? ' <span class="pill OK">ROOKIE</span>' : ''}${p.tw ? ' <span class="pill N_A">TWO-WAY</span>' : ''}${p.breakout ? ' <span class="pill GOOD" title="Young, projected for a real role, and a big jump in impact or minutes">BREAKOUT?</span>' : ''}${p.strong_finish ? ` <span class="pill GOOD" title="Game score per 36 over his last ${p.late.n} games: ${p.late.gmsc36_late} vs ${p.late.gmsc36} for the season">STRONG FINISH</span>` : ''}${p.regression ? ' <span class="pill BAD" title="Minutes per game fell below 75% of the season before (a demotion, not injuries), so no development bump">REGRESSION?</span>' : ''}
           <div class="rk">${esc(note)} · ${esc(p.mp_basis)}</div>
           ${c ? `<div class="rk">${esc(c.season)} ${esc(c.college || '')}: ${(c.pts40).toFixed(1)} pts, ${(c.trb40).toFixed(1)} reb, ${(c.ast40).toFixed(1)} ast per 40 · ${(c.ts * 100).toFixed(1)}% TS</div>` : ''}</td>
         <td class="num">${p.age ?? '–'}</td>
@@ -770,25 +770,51 @@ async function renderGame(id) {
 }
 const ordinal = n => n + ((n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({1: 'st', 2: 'nd', 3: 'rd'}[n % 10] || 'th'));
 
+const ageNow = (draftAge, year) => draftAge == null ? null : draftAge + (Date.now() - new Date(year, 5, 25)) / (365.25 * 864e5);   // draft night ~ June 25
+let BIRTHS = {};
+const BIRTHS_P = getJSON('data/births.json').then(b => { BIRTHS = b; }).catch(() => {});
+const ageFromBirth = pid => { const b = pid && BIRTHS[pid]; if (!b) return null; const d = new Date(b + 'T12:00:00'), n = new Date(); return n.getFullYear() - d.getFullYear() - (n < new Date(n.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0); };
+const ageLine = (draftAge, year, fallback, pid) => { const ex = ageFromBirth(pid); if (ex != null) return `<p class="age-line">Age ${ex}${draftAge != null ? ` <span class="muted small">(${dnum(draftAge, 1)} at the ${year} draft)</span>` : ''}</p>`; const a = ageNow(draftAge, year); return a != null ? `<p class="age-line">Age ${Math.floor(a)} <span class="muted small">(${dnum(draftAge, 1)} at the ${year} draft)</span></p>` : fallback != null ? `<p class="age-line">Age ${fallback}</p>` : ''; };
+async function draftAge(pid) {
+  try { const pr = (await getJSON('data/drafts/profiles.json'))[pid]; if (!pr) return null; const row = (await draftYear(pr.year)).rows.find(q => q.pid === pid); return row && row.Age != null ? { age: row.Age, year: pr.year } : null; } catch (e) { return null; }
+}
 async function renderSeasonPlayer(pid) {
   const view = $('#view');
-  const p = await getJSON(`data/season/players/${pid}.json`);
+  let p = null, proj = null;
+  try { p = await getJSON(`data/season/players/${pid}.json`); } catch (e) { p = null; }
+  try {
+    const P = await getJSON('data/projection.json');
+    for (const t of P.teams) { const q = t.players.find(x => x.pid === pid); if (q) { proj = { ...q, team: t.team, team_name: t.team_name, season: P.season }; break; } }
+  } catch (e) { proj = null; }
+  if (!p && !proj) { view.innerHTML = '<p class="empty">Player not found.</p>'; return; }
+  const projTile = proj ? `<div class="tile"><div class="k">Outlook projection</div><div class="v">${proj.mpg} min/g</div><div class="small muted">${proj.g} games · impact ${sgn(proj.bpm, 1)} · contribution ${sgn(proj.contrib)}</div></div>` : '';
   let prof = null, I = null;
   let PD = null;
   try {
     prof = (await getJSON('data/drafts/profiles.json'))[pid]; I = await getJSON('data/drafts/index.json');
     if (prof) { PD = await draftYear(prof.year); prof = { ...prof, ...(PD.rows.find(q => q.pid === pid) || {}) }; }
   } catch (e) { prof = null; }
-  view.innerHTML = `<a class="back" href="#season/${p.team}">← ${esc(p.team)}</a>
-    <div class="hero"><div class="who"><h2>${esc(p.name)}</h2><p><span class="team-tag">${p.team}</span><a href="#season/${p.team}">${esc(p.team)}</a> · ${p.games} games, ${p.mpg} min/game</p></div>
+  if (!p) {   // on a roster but no 2026-27 games yet: projection, style and draft sections only
+    view.innerHTML = `<a class="back" href="#outlook/${proj.team}">← ${esc(proj.team_name)} outlook</a>
+      <div class="hero"><div class="who"><h2>${esc(proj.name)}</h2>${ageLine(prof && prof.Age, prof && prof.year, proj.age, pid)}<p><span class="team-tag">${proj.team}</span><a href="#outlook/${proj.team}">${esc(proj.team_name)}</a> · ${esc(proj.pos || '')}${proj.age ? ` · age ${proj.age}` : ''} · no ${seasonLabel(proj.season)} games yet · <a href="https://www.basketball-reference.com/players/${pid[0]}/${pid}.html">Basketball-Reference</a></p></div>
+        <div class="stat-tiles">${projTile}</div></div>
+      <div id="sty-slot"></div>
+      ${prof ? draftProfileBlock(prof, prof.year, I, PD) : ''}`;
+    styleSlot(view, pid);
+    return;
+  }
+  view.innerHTML = `<a class="back" href="#season/${p.team}">← ${esc(p.team)}</a>${proj ? ` <a class="back" href="#outlook/${proj.team}">· ${esc(proj.team)} outlook</a>` : ''}
+    <div class="hero"><div class="who"><h2>${esc(p.name)}</h2>${ageLine(prof && prof.Age, prof && prof.year, proj && proj.age, pid)}<p><span class="team-tag">${p.team}</span><a href="#season/${p.team}">${esc(p.team)}</a> · ${p.games} games, ${p.mpg} min/game</p></div>
       <div class="stat-tiles"><div class="tile"><div class="k">Season grade</div><div class="v">${gradePill(p.grade)}</div><div class="small muted">${p.score == null ? 'no graded games' : `score ${sgn(p.score, 1)} over ${p.graded} graded games`}</div></div>
         <div class="tile"><div class="k">Offense</div><div class="v">${gradePill(p.off_grade)}</div><div class="small muted">${p.off_score == null ? '' : `score ${sgn(p.off_score, 1)}`}</div></div>
-        <div class="tile"><div class="k">Defense</div><div class="v">${gradePill(p.def_grade)}</div><div class="small muted">${p.def_score == null ? '' : `score ${sgn(p.def_score, 1)}`}</div></div></div></div>
+        <div class="tile"><div class="k">Defense</div><div class="v">${gradePill(p.def_grade)}</div><div class="small muted">${p.def_score == null ? '' : `score ${sgn(p.def_score, 1)}`}</div></div>${projTile}</div></div>
     <div class="table-wrap"><table><thead><tr><th>Date</th><th>Game</th><th class="num">Min</th><th class="num">Pts</th><th class="num">Reb</th><th class="num">Ast</th><th class="num">+/−</th><th class="num">Game impact</th><th class="num">Expected</th><th>Grade</th><th>Off</th><th>Def</th></tr></thead><tbody>
       ${[...p.log].reverse().map(x => `<tr class="link" data-href="#game/${x.id}"><td class="nowrap">${fmtDate(x.date)}</td><td class="nowrap"><a href="#game/${x.id}">${x.home ? 'vs' : '@'} ${x.opp}</a> <span class="muted small">${x.result} ${sgn(x.margin, 0)}</span></td>
         <td class="num">${(x.mp || 0).toFixed(0)}</td><td class="num">${x.pts ?? '–'}</td><td class="num">${x.trb ?? '–'}</td><td class="num">${x.ast ?? '–'}</td><td class="num">${sgn(x.pm, 0)}</td><td class="num">${x.bpm == null ? '–' : sgn(x.bpm, 1)}</td><td class="num">${sgn(x.exp, 1)}</td><td>${gradePill(x.grade)}</td><td>${gradePill(x.off_grade)}</td><td>${gradePill(x.def_grade)}</td></tr>`).join('')}</tbody></table></div>
+    <div id="sty-slot"></div>
     ${prof ? draftProfileBlock(prof, prof.year, I, PD) : ''}`;
   bindRowLinks(view);
+  styleSlot(view, pid);
 }
 
 /* ---------- NBA Drafts: Present and Past ---------- */
@@ -815,18 +841,18 @@ async function renderDrafts(year, sub) {
   if (year === 'reranks') return renderReranks(view, I, sub);
   // a single draft (its main board), all drafts' main boards together, or the Other section: early entrants
   // who withdrew (the trailing block on each board), with the board they turned up on next
-  const mode = year === 'all' || year === 'other' ? year : 'one';
+  const mode = ['all', 'other', 'noncollege', 'backtoschool'].includes(year) ? year : 'one';
   year = mode === 'one' ? (Number(year) || I.years[0]) : year;
   const Ds = await Promise.all((mode === 'one' ? [year] : I.years).map(async y => [y, await draftYear(y)]));
   const R = Ds.flatMap(([y, D]) => D.rows.map((r, i) => Object.assign(r, { _y: y, _i: i })))
-    .filter(r => mode === 'other' ? r.other : !r.other);
+    .filter(r => mode === 'backtoschool' ? r.back_to_school : mode === 'other' ? r.other && !r.back_to_school : !r.other && (mode !== 'noncollege' || !r.college && !background(r).endsWith('matched)')));
   // each board in order of the model's class rank (#1 first); prospects without one keep the sheet's order after them
   const yi = Object.fromEntries(Ds.map(([y], i) => [y, i]));
   const cr = r => (r.pred && r.pred.class_rank) || Infinity;
   R.sort((a, b) => yi[a._y] - yi[b._y] || cr(a) - cr(b) || a._i - b._i);
   const M = I.model, multi = mode !== 'one';
   const colHelp = `<details class="col-help"><summary>What do these columns mean?</summary><dl>
-    <dt>Class rank</dt><dd>The main ranking (the comparison columns below are hidden until you tick <i>Show comparison columns</i>). <b>VORP model</b>, pre-draft: our main ML model's predicted VORP per season over his first ${M ? M.years_out : 4} seasons, ranked within his class. Past classes are out-of-fold (predicted by a model that never saw that draft). Includes scout adjustments from your conditions (e.g. athletic wing creators and productive shooters up, small light guards and paint-bound bigs down) and a few named overrides, all listed on each prospect's page.</dd>
+    <dt>Class rank</dt><dd>The main ranking (the comparison columns below are hidden until you tick <i>Show comparison columns</i>). <b>VORP model</b>, pre-draft: our main ML model's predicted VORP per season over his first ${M ? M.years_out : 4} seasons, ranked within his class. Past classes are out-of-fold (predicted by a model that never saw that draft). Includes scout adjustments from your conditions (e.g. athletic wing creators and productive shooters up, small light guards and paint-bound bigs down) and your conditionals (stat and body combinations applied to every prospect who fits), all listed on each prospect's page.</dd>
     <dt>Rerank model</dt><dd><b>Second ML model</b>, pre-draft: same inputs, but trained to predict where a player ends up in his class's rerank. It retrains every build, so it follows the reranks as careers develop. It's the best of these at matching real reranks.</dd>
     <dt>Value set</dt><dd><b>Your scouting rules, not a separate model</b>: the VORP model's projection plus or minus your rules as points (shooting touch, self-creation, skill confluences, size and athleticism docks, school, team context, …). Hover a cell to see which rules fired.</dd>
     <dt>Hybrid</dt><dd><b>The blend</b>: the average of his Class rank, Rerank model rank and Value set rank, re-ranked within the class.</dd>
@@ -839,8 +865,8 @@ async function renderDrafts(year, sub) {
   const nameCell = (r, i) => `<td class="name-cell"><a class="${dCls(r.style.name)}" href="#prospect/${r._y}/${r._i}">${esc(r.name)}</a></td>`;
   // first column: the model's class rank (the sheet's own # is not shown)
   const rankCell = r => r.pred && r.pred.class_rank ? `<td class="num rank" data-v="${r.pred.class_rank}">${r.pred.class_rank}<span class="muted small">/${r.pred.class_of}</span></td>` : '<td class="num rank" data-v="9999"><span class="muted">–</span></td>';
-  const idHead = `<th class="num" title="Predicted VORP rank in his draft class (main board), with scout adjustments">Class rank</th><th>Name</th>${multi ? '<th class="num">Draft</th>' : ''}${mode === 'other' ? '<th class="num" title="The board he was on next (main section), if any">Next board</th>' : ''}`;
-  const idCells = (r, i) => `${rankCell(r)}${nameCell(r, i)}${multi ? `<td class="num" data-v="${r._y}"><a href="#drafts/${r._y}">${r._y}</a></td>` : ''}${mode === 'other' ? `<td class="num">${r.next_board ? `<a href="#drafts/${r.next_board}">${r.next_board}</a>` : '<span class="muted">–</span>'}</td>` : ''}`;
+  const idHead = `<th class="num" title="Predicted VORP rank in his draft class (main board), with scout adjustments">Class rank</th><th>Name</th>${multi ? '<th class="num">Draft</th>' : ''}${mode === 'other' ? '<th class="num" title="The board he was on next (main section), if any">Next board</th>' : ''}${mode === 'noncollege' ? '<th title="Where he played before the draft (no college stats)">Background</th>' : ''}`;
+  const idCells = (r, i) => `${rankCell(r)}${nameCell(r, i)}${multi ? `<td class="num" data-v="${r._y}"><a href="#drafts/${r._y}">${r._y}</a></td>` : ''}${mode === 'other' ? `<td class="num">${r.next_board ? `<a href="#drafts/${r.next_board}">${r.next_board}</a>` : '<span class="muted">–</span>'}</td>` : ''}${mode === 'noncollege' ? `<td class="nowrap small">${esc(background(r))}</td>` : ''}`;
   const head = (cols) => `<thead><tr>${idHead}${cols.map(c => `<th class="num">${esc(c)}</th>`).join('')}</tr></thead>`;
   const sc = k => colScale(R, k);
   const outcome = ['SStar', 'Star', 'Starter', 'GBench', 'Bench', 'DBench', 'Bust'].filter(has);
@@ -858,12 +884,15 @@ async function renderDrafts(year, sub) {
   const modelNote = M ? `Our model (ExtraTrees, retrained every build) predicts each prospect's NBA minutes per game and VORP per season over his first ${M.years_out} seasons from the board's attributes, his build and his college stats, trained on the ${M.trained_on} drafts (${M.samples} prospects; the oldest from the rerank tab, the newest with partial careers). Leave-one-draft-out it correlates ${M.mpg.corr_model} with real minutes (the board's score alone: ${M.mpg.corr_score_only}) and ${M.vorp_per.corr_model} with VORP (score alone: ${M.vorp_per.corr_score_only}). Past drafts show out-of-fold predictions (made without that draft).` : '';
   view.innerHTML = `<h2>NBA Drafts: Present and Past</h2>
     <p class="lede">Draft boards from the realgm + barttorvik workflow (college stats from RealGM and Barttorvik play-by-play with strength of schedule; international players from RealGM), with skill grades, outcome probabilities, NBA comparisons and machine-learning projections. Each prospect is linked to his NBA career so far. ${modelNote}</p>
-    <div class="toolbar"><label class="small">Draft <select id="draft-year"><option value="all"${mode === 'all' ? ' selected' : ''}>All drafts</option>${I.years.map(y => `<option${y === year ? ' selected' : ''}>${y}</option>`).join('')}<option value="other"${mode === 'other' ? ' selected' : ''}>Other (withdrew)</option><option value="schools">School ratings</option><option value="reranks">Draft reranks</option></select></label>
+    ${draftNav(I, mode === 'one' ? year : mode)}
+    <div class="toolbar">
       <input class="draft-filter" id="draft-filter" placeholder="Filter by name, school, position…"> <span class="small muted">${R.length} prospects</span> <label class="small"><input type="checkbox" id="draft-cmp"> Show comparison columns (Rerank model, Hybrid, Value set)</label>${multi ? ' <span id="draft-pager" class="draft-pager"></span>' : ''}</div>
     ${legend}
     ${modelExplainer(M)}
-    <h3>${mode === 'all' ? 'All drafts' : mode === 'other' ? 'Other: early entrants who withdrew' : `${year} board`}</h3>
+    <h3>${mode === 'all' ? 'All drafts' : mode === 'backtoschool' ? 'Back to school' : mode === 'noncollege' ? 'Non-college prospects, all drafts' : mode === 'other' ? 'Other: early entrants who withdrew' : `${year} board`}</h3>
     ${colHelp}
+    ${mode === 'backtoschool' ? '<p class="small">Prospects listed on a board who went back to school instead (Thomas Haugh, Alex Condon, Alijah Arenas, Moustapha Thiam, Braylon Mullins in 2026). They are off that main board and its class ranks; the model\'s projection from that season is kept for reference.</p>' : ''}
+    ${mode === 'noncollege' ? '<p class="small">Every main-board prospect without college stats: internationals (RealGM pro stats), G League Ignite, Overtime Elite, prep and others, across all drafts. <b>Class rank</b> is still his rank within his own draft class (past classes out-of-fold); sort by <b>All-class pct</b> to compare across drafts.</p>' : ''}
     ${mode === 'other' ? '<p class="small">Players who declared for that draft and withdrew (the block at the end of each sheet tab, ranked out of order). They keep their stats from that season; <b>Next board</b> is the later draft whose main board he is on. Late additions who were drafted that year stay on the main board.</p>' : ''}
     <p class="small muted"><b>NBA so far</b> reads minutes per game / BPM / total VORP over his NBA seasons since the draft (e.g. 33.5 / +1.4 / 2 = 33.5 min a game, +1.4 box plus-minus, 2.0 VORP in total). <b>Model min/g</b> and <b>Model VORP/yr</b> are our model's predictions for his first ${M ? M.years_out : 4} seasons. Boards are in order of the model's class rank (#1 first). Click any column header to sort; click again to reverse.</p>
     <div class="table-wrap draft-wrap"><table class="draft-table" data-t="board"><thead><tr>${idHead}<th class="num">Age</th><th class="num">Score</th><th>Pos</th><th>Info</th><th class="num">Pick</th><th class="num" title="NBA career so far (all seasons after the draft): minutes per game / BPM (minutes-weighted) / total VORP">NBA so far<br><span class="small muted">min/g · BPM · VORP</span></th><th class="num" title="Our model: minutes per game over his first seasons">Model min/g</th><th class="num" title="Our model: VORP per season">Model VORP/yr</th><th class="num" data-cmp title="Rerank model: a second model trained on where prospects actually rerank in their class (retrained every build as reranks change); his predicted class rank">Rerank model</th><th class="num" data-cmp title="Hybrid: the average of his VORP-model, rerank-model and Value set class ranks, re-ranked within the class">Hybrid</th><th class="num" title="Actual: where he reranks in his class so far (minutes, BPM and usage since the draft; see Draft reranks), to compare with the pre-draft ranks beside it">Rerank</th><th class="num" title="Predicted VORP percentile over every draft class 2016-2026">All-class pct</th><th title="Our model's PRE-DRAFT projection: tier from his all-class predicted-VORP rank (in brackets: from his class rank, when different)">Model tier (pre-draft)</th><th title="What actually happened: the same tiers applied to his real first four NBA seasons (so far, for newer classes); hover for his career">Actual tier</th><th title="Offense or defense lean of his predicted impact (predicted OBPM vs DBPM)">Lean</th><th class="num" data-cmp title="Value set: the user's scouting principles (shooting touch, skill confluences, two-way play, bigs' range and rim protection, school, team context) as points on the model's VORP per season; rank in class. Hand-set rules, not validated: hover a cell for the rules that fired">Value set</th></tr></thead><tbody>
@@ -898,7 +927,6 @@ async function renderDrafts(year, sub) {
     set(show);
     cmpBox.addEventListener('change', () => set(cmpBox.checked));
   } else if (cmpBox) cmpBox.parentElement.remove();
-  view.querySelector('#draft-year').addEventListener('change', e => { location.hash = `#drafts/${e.target.value}`; });
   // All drafts / Other: DRAFT_PAGE rows at a time (each table, in its current sort order), filter first
   let page = 0, q = '';
   const pager = view.querySelector('#draft-pager');
@@ -924,11 +952,19 @@ async function renderDrafts(year, sub) {
   apply();
 }
 const DRAFT_PAGE = 20;
-function draftViewSelect(I, cur) {
-  return `<label class="small">View <select id="draft-year"><option value="all">All drafts</option>${I.years.map(y => `<option>${y}</option>`).join('')}<option value="other">Other (withdrew)</option><option value="schools"${cur === 'schools' ? ' selected' : ''}>School ratings</option><option value="reranks"${cur === 'reranks' ? ' selected' : ''}>Draft reranks</option></select></label>`;
+// the Drafts tab's view switcher: a highlighted bar of every view (boards by year, all drafts, non-college,
+// withdrawn, school ratings, reranks), shown at the top of each draft page
+const DRAFT_VIEWS = [['all', 'All drafts'], ['noncollege', 'Non-college (international, pro, prep)'], ['other', 'Other (withdrew)'], ['backtoschool', 'Back to school'],
+  ['schools', 'School ratings'], ['reranks', 'Draft reranks']];
+function draftNav(I, cur) {
+  const pill = (v, label) => `<a class="dn-pill${String(cur) === String(v) ? ' active' : ''}" href="#drafts/${v}"${String(cur) === String(v) ? ' aria-current="page"' : ''}>${esc(label)}</a>`;
+  return `<nav class="draft-nav" aria-label="Draft views">
+    <div class="dn-row"><span class="dn-k">View</span>${DRAFT_VIEWS.map(([v, l]) => pill(v, l)).join('')}</div>
+    <div class="dn-row"><span class="dn-k">Draft</span>${[...I.years].sort((a, b) => b - a).map(y => pill(y, y)).join('')}</div></nav>`;
 }
+function draftViewSelect(I, cur) { return draftNav(I, cur); }
 function bindDraftView(view) {
-  view.querySelector('#draft-year').addEventListener('change', e => { location.hash = `#drafts/${e.target.value}`; });
+  view.querySelector('#draft-year')?.addEventListener('change', e => { location.hash = `#drafts/${e.target.value}`; });
 }
 async function renderSchools(view, I, sub) {
   if (sub) return renderSchool(view, I, decodeURIComponent(sub));
@@ -950,13 +986,18 @@ async function renderSchool(view, I, name) {
   const S = await getJSON('data/drafts/schools.json');
   const x = S.schools.find(s => s.school === name);
   if (!x) { view.innerHTML = `<p>No school named ${esc(name)}. <a href="#drafts/schools">All schools</a></p>`; return; }
-  const who = p => p.pid ? `<a href="#splayer/${esc(p.pid)}">${esc(p.name)}</a>` : esc(p.name);
+  const who = p => p.board_i != null ? `<a href="#prospect/${p.year}/${p.board_i}">${esc(p.name)}</a>` : p.pid ? `<a href="#splayer/${esc(p.pid)}">${esc(p.name)}</a>` : esc(p.name);
+  // outcome colors: stars by class rerank, risers / underachievers by rerank vs draft slot (10 x (ln pick - ln rerank))
+  const outcome = p => !p.games ? (p.pick ? ['bust', 'Never played'] : null)
+    : p.rerank <= 2 ? ['super', 'Superstar of the class (rerank 1-2)'] : p.rerank <= 6 ? ['star', 'Star (rerank 3-6)']
+    : p.bust ? ['bust', 'Bust'] : p.score >= 8 ? ['riser', 'Rose well above his draft slot'] : p.score <= -8 ? ['under', 'Underachieved his draft slot'] : null;
   view.innerHTML = `<p><a href="#drafts/schools">← School ratings</a></p>
     <h2>${esc(x.school)} ${schoolPill({ ...x, of: S.schools.length })}</h2>
     <p class="small">#${x.rank} of ${S.schools.length} · ${x.prospects} prospects (${esc(x.size)} program), ${x.nba} reached the NBA, ${x.drafted} drafted · school score ${sgn(x.score, 1)} (${sgn(x.avg, 1)} a player) · ${x.hits} hits, ${x.busts} busts · ${dnum(x.vorp, 1)} VORP since their drafts</p>
     <p class="small muted">Each player's class rerank (minutes, BPM and usage since the draft) against his draft slot; over/under = 10 × (ln pick − ln rerank), undrafted = 61.</p>
+    <p class="small so-legend"><span class="so-super">Superstar (class rerank 1–2)</span> <span class="so-star">Star (rerank 3–6)</span> <span class="so-riser">Rose well above his slot (over/under +8)</span> <span class="so-under">Underachieved his slot (−8)</span> <span class="so-bust">Bust / drafted, never played</span> · click a name for his prospect page</p>
     <div class="table-wrap draft-wrap"><table class="draft-table"><thead><tr><th class="num">Draft</th><th>Player</th><th class="num">Pick</th><th class="num">Rerank</th><th class="num">Over/under</th><th class="num">Games</th><th class="num">VORP</th></tr></thead><tbody>
-      ${x.players.map(p => `<tr><td class="num"><a href="#drafts/reranks/${p.year}">${p.year}</a></td><td class="name-cell">${who(p)}${p.bust ? ' <span class="d-tag bad">bust</span>' : ''}</td><td class="num">${p.pick || 'UD'}</td><td class="num" data-v="${p.rerank}">${p.games ? p.rerank : '–'}<span class="muted small">/${p.of}</span></td><td class="num ${p.score > 0 ? 'd-col-green' : p.score < 0 ? 'd-col-red' : ''}">${sgn(p.score, 1)}</td><td class="num">${p.games || 0}</td><td class="num">${dnum(p.vorp, 1)}</td></tr>`).join('')}</tbody></table></div>`;
+      ${x.players.map(p => { const o = outcome(p); return `<tr${o ? ` class="so-${o[0]}" title="${o[1]}"` : ''}><td class="num"><a href="#drafts/reranks/${p.year}">${p.year}</a></td><td class="name-cell">${who(p)}${p.bust ? ' <span class="d-tag bad">bust</span>' : ''}</td><td class="num">${p.pick || 'UD'}</td><td class="num" data-v="${p.rerank}">${p.games ? p.rerank : '–'}<span class="muted small">/${p.of}</span></td><td class="num ${p.score > 0 ? 'd-col-green' : p.score < 0 ? 'd-col-red' : ''}">${sgn(p.score, 1)}</td><td class="num">${p.games || 0}</td><td class="num">${dnum(p.vorp, 1)}</td></tr>`; }).join('')}</tbody></table></div>`;
   sortableTables(view, '.draft-table');
 }
 
@@ -1001,6 +1042,16 @@ function collegeBlock(c) {
   return `<p class="small"><b>College (${esc(c.team)}, ${c.season - 1}-${String(c.season).slice(2)}, Barttorvik):</b> ${c.gp ?? '–'} of ${c.team_games ?? '–'} games${c.games_missed ? ` · <span class="${c.games_missed >= 15 ? 'd-col-red' : ''}">${c.games_missed} games missed over ${c.seasons} college season${c.seasons > 1 ? 's' : ''}</span>` : ''} · ${dnum(c.mpg, 1)} min · ${dnum(c.pts, 1)} pts · BPM ${sgn(c.bpm, 1)} (O ${sgn(c.obpm, 1)} / D ${sgn(c.dbpm, 1)}) · ${dnum(c.dunks_pg, 1)} dunks a game (${pct(c.dunk_rate)} of shots) · ${pct(c.rim_rate)} of shots at the rim · ${pct(c.astd_rate)} of makes assisted · steal ${dnum(c.stl, 1)}% · block ${dnum(c.blk, 1)}%${c.rec_rank ? ` · recruit rating ${dnum(c.rec_rank, 1)}` : ''}${c.sos != null ? ` · SOS ${dnum(c.sos, 3)}` : ''}</p>`;
 }
 function compTitle(c) { return /^\{\[.*\]\}$/.test((c.name || '').trim()) ? ' title="Height and weight match"' : ''; }
+// where a non-college prospect played before the draft
+function background(r) {
+  const info = r.Info || '';
+  if (/ignite|g-league/i.test(info)) return 'G League Ignite';
+  if (/overtime|\bote\b/i.test(info)) return 'Overtime Elite';
+  if (r.intl || r.pro) return r.pro && r.pro.team && r.pro.team !== 'All' ? `International (${r.pro.team})` : 'International';
+  if (/prep|academy|high school|nike|eybl/i.test(info + ' ' + r.name)) return 'Prep';
+  return r.school ? `${r.school} (no college stats matched)` : 'Prep / other';
+}
+
 function valueCell(r) {
   const v = r.value_set;
   if (!v || !v.class_rank) return '<td></td>';
@@ -1023,7 +1074,7 @@ function modelExplainer(M) {
   const tiers = (M.tiers || []).map(t => `<li><b>${esc(t.tier)}</b> · ${(t.share * 100).toFixed(1)}% of past prospects</li>`).join('');
   return `<details class="card d-legend" style="padding:10px 14px;margin-bottom:14px"><summary class="strong">How our model works (training, inputs, VORP, tiers)</summary>
     <p><b>What it predicts.</b> For each prospect, his NBA minutes per game and VORP per season over his first ${M.years_out} seasons after the draft (0 minutes if he never played), plus his OBPM and DBPM (the offense / defense lean). VORP is Basketball-Reference's value over a replacement-level player, built from box plus-minus and minutes, so a player has to both play and produce to score well.</p>
-    <p><b>How it was trained.</b> ExtraTrees (an ensemble of randomized decision trees, as in the realgm/barttorvik scripts) fit on the ${M.trained_on} drafts (${M.samples} prospects; withdrawn early entrants are left out so nobody counts twice). ${M.history_samples ? `${M.history_samples} of them are the 2008-2015 classes from the user's rerank tab (skill grades and Barttorvik stats, no board score), at half weight and never held out or scored; they lifted the top-15 picks' VORP r from 0.43 to 0.45. ` : ''}A prospect's college BPM is also compared with earlier prospects from the same school, so a standout on a roster that holds everyone's numbers down (Kentucky) gets credit. It also weighs shot profile (mid-range-heavy scorers, foul drawing, FT% with three-point volume) and, for bigs, range, vertical pop, handles and passing: among top-15 picks, bigs with none of range, pop or handles fell short of their predictions. The board's Bust probability is left out (accuracy rose without it).${M.tall_playmaker ? `<b>Tall playmakers</b> (guard-or-bigger height with top-quarter handles and vision, range and some steals) get a calibration bonus of ${sgn(M.tall_playmaker.bonus, 2)} VORP a season, learned from how far the model under-predicted the ${M.tall_playmaker.n} earlier ones. ` : ''}${M.low_volume ? `Highly rated prospects (board score 1+) who scored under 10 points a game in college get ${sgn(M.low_volume.bonus, 2)}, learned the same way from ${M.low_volume.n} earlier ones (the model over-predicted all of them). These calibrations came from mining the user's archetype conditions in predictDomWModel / predictIntWModel / FinalConditioning for consistent model misses; applying every consistent one lowered accuracy, these two raise it. ` : ''}<b>Value set</b> (last board column) is a separate scouting view: the user's principles from their predict scripts and macros (shooting touch, self-creation: unassisted makes + foul drawing + handles, productive freshmen, volume shooters who draw fouls, point forwards, big scoring wings, handles + vision + jumper, vision + steals, blocks + steals, two-way efficiency, wings who can't shoot, highly rated prospects with negative offensive efficiency, high usage on a weak college team, bigs without range / pop / handles or rim protection, paint-bound bigs without hops, blocks or passing, youth, school rating) added as points to the model's VORP per season. Fitted to the user's own reranks these rules agreed with them less than the model alone (0.32 vs 0.34), so they are shown beside the model, not mixed into it. <b>Rerank model</b> is a second model trained on where prospects actually rerank in their class (minutes, BPM and usage since the draft), retrained every build as careers develop; held out by draft it matches the real class reranks better than the VORP model (rank correlation 0.54 vs 0.46 among NBA players, 0.58 vs 0.46 over the whole board). <b>Hybrid</b> averages the VORP model's, the rerank model's and the Value set's class ranks and re-ranks the class (held out 0.51 vs the real reranks); <b>Rerank</b> beside it is where he actually reranks so far. ${M.scout ? ` <b>Scout adjustments</b> (rules, not learned) then multiply predicted VORP: ×${M.scout.no_stats} for prospects with no college or pro stats (Overtime Elite, G League Ignite, prep) and ×${M.scout.unicorn} for unicorn bigs (6-11+, shot-blocking with range, a top board score), plus point docks and bonuses from your conditions (athletic wing creators like Edwards +0.4; paint-bound bigs like Carey, undersized bigs with no three like Okongwu, unathletic soft perimeter players like Ayayi −0.1; high-usage foul-prone scorers without hops or vision like Mason Jones and Elleby −0.15; small light guards 6'4" and 180 lb or under without top vertical, steals or downhill burst like Philon, Christian Anderson, Kira Lewis Jr. and Hands −0.2, very light guards −0.1; bigs who barely played in college like Wiseman −0.25; perimeter players with poor free-throw touch like Fultz and Lonzo −0.2; mid-range-heavy perimeter players −0.15; high-usage guards on weak teams at bad schools like Dennis Smith Jr. −0.25; big scoring wings like Tatum +0.2; self-creators with touch +0.1), ${M.scout.n} prospects in all. They are judgment calls, not learned: VORP r on the complete drafts is ${M.scout.corr_with} with them, ${M.scout.corr_without ?? M.scout.corr_with} without (the productive-shooter bonus for college BPM 7.5+ with FT 78%+ and three-point volume (Mitchell, Markkanen) is the big gain; elite-vertical rim protectors, elite-gravity wings, Overtime Elite and injury-shortened seasons are smaller rules). On top of the rules, ${M.scout.players || 0} named overrides are your calls on single prospects where no rule held up (Sabonis, Jaylin Williams, Edey, Ighodaro up; Valentine, Fernando, Stephens, Simpson, Philon, Lopez down): they are listed on each prospect's page and left out of that accuracy, since on past classes they use hindsight.` : ''} Classes that have played fewer than ${M.years_out} NBA seasons (2023-2025) are included with what they have so far: they count less (1-3 seasons of ${M.years_out}), and how many seasons were seen is an input that is set to ${M.years_out} when predicting. Accuracy below is measured only on the complete ${M.complete_on || M.trained_on} drafts (${M.complete_samples || M.samples} prospects). Every class through ${(M.trained_on || '').slice(-4)} shows out-of-fold predictions; the newest class has no NBA seasons yet and is predicted by the model fit on all of them. It retrains on every build, so as careers develop it learns from them.</p>
+    <p><b>How it was trained.</b> ExtraTrees (an ensemble of randomized decision trees, as in the realgm/barttorvik scripts) fit on the ${M.trained_on} drafts (${M.samples} prospects; withdrawn early entrants are left out so nobody counts twice). ${M.history_samples ? `${M.history_samples} of them are the 2008-2015 classes from the user's rerank tab (skill grades and Barttorvik stats, no board score), at half weight and never held out or scored; they lifted the top-15 picks' VORP r from 0.43 to 0.45. ` : ''}A prospect's college BPM is also compared with earlier prospects from the same school, so a standout on a roster that holds everyone's numbers down (Kentucky) gets credit. It also weighs shot profile (mid-range-heavy scorers, foul drawing, FT% with three-point volume) and, for bigs, range, vertical pop, handles and passing: among top-15 picks, bigs with none of range, pop or handles fell short of their predictions. The board's Bust probability is left out (accuracy rose without it).${M.tall_playmaker ? `<b>Tall playmakers</b> (guard-or-bigger height with top-quarter handles and vision, range and some steals) get a calibration bonus of ${sgn(M.tall_playmaker.bonus, 2)} VORP a season, learned from how far the model under-predicted the ${M.tall_playmaker.n} earlier ones. ` : ''}${M.low_volume ? `Highly rated prospects (board score 1+) who scored under 10 points a game in college get ${sgn(M.low_volume.bonus, 2)}, learned the same way from ${M.low_volume.n} earlier ones (the model over-predicted all of them). These calibrations came from mining the user's archetype conditions in predictDomWModel / predictIntWModel / FinalConditioning for consistent model misses; applying every consistent one lowered accuracy, these two raise it. ` : ''}<b>Value set</b> (last board column) is a separate scouting view: the user's principles from their predict scripts and macros (shooting touch, self-creation: unassisted makes + foul drawing + handles, productive freshmen, volume shooters who draw fouls, point forwards, big scoring wings, handles + vision + jumper, vision + steals, blocks + steals, two-way efficiency, wings who can't shoot, highly rated prospects with negative offensive efficiency, high usage on a weak college team, bigs without range / pop / handles or rim protection, paint-bound bigs without hops, blocks or passing, youth, school rating) added as points to the model's VORP per season. Fitted to the user's own reranks these rules agreed with them less than the model alone (0.32 vs 0.34), so they are shown beside the model, not mixed into it. <b>Rerank model</b> is a second model trained on where prospects actually rerank in their class (minutes, BPM and usage since the draft), retrained every build as careers develop; held out by draft it matches the real class reranks better than the VORP model (rank correlation 0.54 vs 0.46 among NBA players, 0.58 vs 0.46 over the whole board). <b>Hybrid</b> averages the VORP model's, the rerank model's and the Value set's class ranks and re-ranks the class (held out 0.51 vs the real reranks); <b>Rerank</b> beside it is where he actually reranks so far. ${M.scout ? ` <b>Scout adjustments</b> (rules, not learned) then multiply predicted VORP: ×${M.scout.no_stats} for prospects with no college or pro stats (Overtime Elite, G League Ignite, prep) and ×${M.scout.unicorn} for unicorn bigs (6-11+, shot-blocking with range, a top board score), plus point docks and bonuses from your conditions (athletic wing creators like Edwards +0.4; paint-bound bigs like Carey, undersized bigs with no three like Okongwu, unathletic soft perimeter players like Ayayi −0.1; high-usage foul-prone scorers without hops or vision like Mason Jones and Elleby −0.15; small light guards 6'4" and 180 lb or under without top vertical, steals or downhill burst like Philon, Christian Anderson, Kira Lewis Jr. and Hands −0.2, very light guards −0.1; bigs who barely played in college like Wiseman −0.25; perimeter players with poor free-throw touch like Fultz and Lonzo −0.2; mid-range-heavy perimeter players −0.15; high-usage guards on weak teams at bad schools like Dennis Smith Jr. −0.25; big scoring wings like Tatum +0.2; self-creators with touch +0.1), ${M.scout.n} prospects in all. They are judgment calls, not learned: VORP r on the complete drafts is ${M.scout.corr_with} with them, ${M.scout.corr_without ?? M.scout.corr_with} without (the productive-shooter bonus for college BPM 7.5+ with FT 78%+ and three-point volume (Mitchell, Markkanen) is the big gain; elite-vertical rim protectors, elite-gravity wings, Overtime Elite and injury-shortened seasons are smaller rules). On top of those, ${M.scout.user_rules || 0} of your conditionals (stat and body combinations in the style of predictDomWModel.py, applied to every prospect who fits, past and future: small guards without hops, older one-dimensional shooters, unathletic bigs, weak programs, young international size, tall skilled wings, productive athletic bigs, …) are applied as judgment calls; with them VORP r is ${M.scout.corr_all ?? '–'}. Each prospect's page lists every rule and conditional that fired.` : ''} Classes that have played fewer than ${M.years_out} NBA seasons (2023-2025) are included with what they have so far: they count less (1-3 seasons of ${M.years_out}), and how many seasons were seen is an input that is set to ${M.years_out} when predicting. Accuracy below is measured only on the complete ${M.complete_on || M.trained_on} drafts (${M.complete_samples || M.samples} prospects). Every class through ${(M.trained_on || '').slice(-4)} shows out-of-fold predictions; the newest class has no NBA seasons yet and is predicted by the model fit on all of them. It retrains on every build, so as careers develop it learns from them.</p>
     <p><b>Inputs (value set).</b> The board's own numbers (score, age, projected pick, the seven outcome probabilities, offensive / defensive efficiency, the twelve skill grades), position, height, weight, international, build relative to position (pounds per inch and height vs other guards / wings / bigs, so a skinny big reads as one), raw college stats where the training workbook has them (strength of schedule, dunk %, at-rim rate, assisted rate, jumper volume, 3-point tendency and the per-game lines), <b>Barttorvik's season stats for every college prospect</b> (games played and games missed over his college career as an injury / availability signal, minutes, offensive and defensive ratings, BPM split, dunks and dunk rate, at-rim and mid-range rates, share of makes assisted, recruiting rating, class, strength of schedule, team strength, change from last season), his <b>school's track record</b> from earlier classes (how many prospects it produced, how many reached the NBA or the lottery, their VORP) and coach-era / conference flags (Calipari at Kentucky through 2024 and Arkansas from 2025, power conference). Most important: ${(M.top_features || []).map(([k, v]) => `${esc(k)} ${(v * 100).toFixed(0)}%`).join(', ')}.</p>
     <p><b>How well it does.</b> Tested leave-one-draft-out (each draft predicted by a model that never saw it): correlation with real minutes ${M.mpg.corr_model} (the board's score alone ${M.mpg.corr_score_only}), with real VORP ${M.vorp_per.corr_model} (score alone ${M.vorp_per.corr_score_only}); typical miss ${M.mpg.mae_model} min/g. The Barttorvik stats lifted it the most; school track record and coach flags are about neutral, since the board score, projected pick and recruiting rating already carry most of a school's pedigree. For highly rated prospects it also weighs the board score against the school's track record, free-throw %, rim rate and college defensive BPM (what separated the top-15 picks who beat their slot, like SGA and Tatum, from busts like Ayton and Ball). The classes with partial careers (2023-25) are included, weighted by seasons seen. Tested and left out because they did not help: a target over the whole career (no better on careers), the user's hand-made rerank strata as a target (no better), separate international and college models (worse on minutes), the prediction script's fudge-factor rules, position-normalized skills, athleticism interactions, and a neural network (which did much worse with this little data).</p>
     <p><b>Predicted vs actual.</b> Model tiers are pre-draft projections (past classes: made without that class). Next to them, <b>Actual tier</b> applies the same tiers to his real first four seasons (→ his whole career since), and prospect pages add his rerank vs his draft slot (bust flag), his latest season, and an <b>availability risk</b>: the games his closest past prospects (by the model) missed in their rotation seasons, next to his own college games missed. <b>Closest past prospects</b> are the model's own comparisons: the share of its trees that put two prospects in the same leaf.</p><p><b>Tiers.</b> Real outcomes over the first ${M.years_out} seasons define the tiers (Superstar VORP 2.0+ a season, Star 1.2+, Starter 0.6+, Super role player 0.25+, Role player 12+ min/g, Benchwarmer played, Won't get the chance never played). Predictions are shrunk toward the middle, so a prospect's tier comes from his predicted-VORP rank: the top ${(((M.tiers || [])[0] || {share: 0}).share * 100).toFixed(1)}% of all classes are Superstars, and so on down with the same shares as real careers. The class tier does the same within his own draft class.</p><ul>${tiers}</ul></details>`;
@@ -1042,7 +1093,8 @@ function draftProfileBlock(r, year, I, D) {
   return `<h3>Draft profile (${year} board)</h3>
     ${r.other ? `<p class="small"><b>Declared for the ${year} draft and withdrew</b>${r.next_board ? ` · on the <a href="#drafts/${r.next_board}">${r.next_board} board</a>` : ''}. <a href="#drafts/other">Other section →</a></p>` : ''}
     <div class="stat-tiles" style="margin-bottom:12px">
-      <div class="tile"><div class="k">Board rank</div><div class="v ${dCls(st.rank)}">#${r.rank ?? '–'}</div><div class="small muted">score ${dnum(r.Score, 2)}${r.pick ? ` · drafted #${r.pick} by ${r.drafted_by}` : ' · undrafted'}</div></div>
+      <div class="tile"><div class="k">Class rank</div><div class="v ${dCls(st.rank)}">${r.pred && r.pred.class_rank ? `#${r.pred.class_rank}<span class="muted small"> of ${r.pred.class_of}</span>` : '–'}</div><div class="small muted">our model's rank in the ${year} class · sheet board #${r.rank ?? '–'}, score ${dnum(r.Score, 2)}${r.pick ? `<br>drafted #${r.pick} by ${r.drafted_by}` : year < new Date().getFullYear() || new Date().getMonth() > 5 ? '<br>undrafted' : ''}</div></div>
+      ${r.rerank ? `<div class="tile"><div class="k">Rerank</div><div class="v">#${r.rerank.rerank}<span class="muted small"> of ${r.rerank.of}</span></div><div class="small muted">where he ranks in the ${year} class so far (<a href="#drafts/reranks/${year}">rerank</a>)${r.rerank.bust ? ' <span class="d-tag bad">bust</span>' : ''}${r.pred && r.pred.class_rank ? `<br>${r.rerank.rerank < r.pred.class_rank ? `${r.pred.class_rank - r.rerank.rerank} spot${r.pred.class_rank - r.rerank.rerank === 1 ? '' : 's'} better than our class rank` : r.rerank.rerank > r.pred.class_rank ? `${r.rerank.rerank - r.pred.class_rank} spot${r.rerank.rerank - r.pred.class_rank === 1 ? '' : 's'} worse than our class rank` : 'same as our class rank'}` : ''}</div></div>` : ''}
       <div class="tile"><div class="k">Background</div><div class="small"><span class="${dCls(st.info)}">${esc(r.school || '–')}</span>${r.school_tier ? ` ${schoolPill(r.school_tier)}` : ''}${r.intl ? ' <span class="pill OK">INTERNATIONAL</span>' : ''}<br>${htFmt(r.height_in)}, ${r.weight ?? '–'} lb · ${esc(r.Pos || '')} · age ${dnum(r.Age, 1)} at the draft${r['Birth City'] ? `<br>born ${esc(r['Birth City'])}` : ''}</div></div>
       <div class="tile"><div class="k">Prospect strengths</div><div class="small">${(r.strengths || []).length ? r.strengths.map(esc).join(', ') : '<span class="muted">none in his class\'s top quarter</span>'}</div></div>
       <div class="tile"><div class="k">Prospect weaknesses</div><div class="small">${(r.weaknesses || []).length ? r.weaknesses.map(esc).join(', ') : '<span class="muted">none in his class\'s bottom quarter</span>'}</div></div>
@@ -1074,9 +1126,11 @@ async function renderProspect(year, i) {
   let season = null;
   if (r.pid) { try { season = await getJSON(`data/season/players/${r.pid}.json`); } catch (e) { season = null; } }
   view.innerHTML = `<a class="back" href="#drafts/${year}">← ${year} draft</a>
-    <div class="hero"><div class="who"><h2 class="${dCls(r.style.name)}">${esc(r.name)}</h2><p>${year} draft · ${esc(r.Info || '')}${r.pid ? ` · <a href="https://www.basketball-reference.com/players/${r.pid[0]}/${r.pid}.html">Basketball-Reference</a>` : ''}${season ? ` · <a href="#splayer/${r.pid}">${seasonLabel(S._season ? S._season.season : 2027)} games</a>` : ''}</p></div>
+    <div class="hero"><div class="who"><h2 class="${dCls(r.style.name)}">${esc(r.name)}</h2>${year < new Date().getFullYear() || new Date().getMonth() > 5 ? ageLine(r.Age, year, null, r.pid) : ''}<p>${year} draft · ${esc(r.Info || '')}${r.pid ? ` · <a href="https://www.basketball-reference.com/players/${r.pid[0]}/${r.pid}.html">Basketball-Reference</a>` : ''}${season ? ` · <a href="#splayer/${r.pid}">${seasonLabel(S._season ? S._season.season : 2027)} games</a>` : ''}</p></div>
       ${r.nba ? `<div class="stat-tiles"><div class="tile"><div class="k">NBA so far</div><div class="v">${r.nba.mpg} min/g</div><div class="small muted">${r.nba.seasons} seasons, ${r.nba.games} games · BPM ${sgn(r.nba.bpm, 1)} · VORP ${r.nba.vorp}</div></div></div>` : ''}</div>
+    <div id="sty-slot"></div>
     ${draftProfileBlock(r, year, I, D)}`;
+  styleSlot(view, r.pid);
 }
 
 function renderMethod() {
@@ -1088,15 +1142,133 @@ function renderMethod() {
   $('#team-start').textContent = S.team_horizon_start;
 }
 
+/* ---------- Player styles (gmrank/styles.py: the nba_api ratings tabs / PLAYERDEFENSEDROPDOWN) ---------- */
+const STY_TYPES = { poa: 'Point-of-attack', aptitude: 'Underrated guard D', drop: 'Drop defender', nostocks: 'No stocks', uninvolved: 'Uninvolved', badc: 'Poor defensive C' };
+const styBand = v => v == null ? '' : v === 0 ? 'sv-zero' : v >= 75 ? 'sv-elite' : v >= 60 ? 'sv-good' : v <= 25 ? 'sv-poor' : v >= 40 ? 'sv-mid' : '';
+const styTone = l => /but good/.test(l) ? 'mid' : /\b(in|non|no|minimal|slow|poor|bad|below|prone|brickster|stopper|doesn't move|little|undisciplined|invisible|drop|non-threat)\b|inefficient|turnover/.test(l) ? 'bad'
+  : /elite|excellent|efficient|very good|good|fast|mistake free|responsible|self-creator|sharpshooter|shot-blocker|clears|doesn't foul|feisty|underrated|versatile|defender$|disciplined|charge|body on|foul drawer|foul-drawing|second-chancer|alpha|star|threat|shooter|passer|ball mover|pressure|dunker|vertical/.test(l) ? 'good' : 'mid';
+const styOrder = ls => [...ls].sort((a, b) => ({ good: 0, mid: 1, bad: 2 })[styTone(a)] - ({ good: 0, mid: 1, bad: 2 })[styTone(b)]);   // strengths, neutral, weaknesses
+const styChips = ls => ls.length ? styOrder(ls).map(l => `<span class="d-tag ${styTone(l) === 'mid' ? '' : styTone(l)}">${esc(l)}</span>`).join('') : '<span class="muted small">no qualifying minutes</span>';
+const styTypeTags = ts => ts.map(([k]) => `<span class="sty-type sty-${k}">${esc(STY_TYPES[k])}</span>`).join(' ');
+const STY_GRADES = [[95, 'Elite', 'VERY_GOOD'], [80, 'Very good', 'VERY_GOOD'], [60, 'Good', 'GOOD'], [40, 'OK', 'OK'], [20, 'Bad', 'BAD'], [0, 'Very bad', 'VERY_BAD']];
+const styGrade = (pct, tip = '') => { if (pct == null) return '<span class="muted">–</span>'; const g = STY_GRADES.find(x => pct >= x[0]); return `<span class="pill ${g[2]}" title="${pct}th percentile of the league${tip}">${g[1]}</span>`; };
+let styIdx = null;
+async function styIndex() { return styIdx || (styIdx = await getJSON('data/styles/index.json')); }
+async function styleByPid(pid) {
+  if (!pid) return null;
+  try { const X = await styIndex(); const e = X.players.find(p => p.pid === pid); return e ? { X, p: await getJSON(`data/styles/players/${e.id}.json`) } : null; } catch (e) { return null; }
+}
+function styTrend(p, key, label, X) {   // one small multiple: 0-100 within position, a dot per season, dashed career mean
+  const yrs = X.meta.seasons, W = 168, H = 64, L = 4, R = 4, T = 6, B = 6;
+  const x = y => L + (yrs.length < 2 ? (W - L - R) / 2 : (yrs.indexOf(y) / (yrs.length - 1)) * (W - L - R)), y = v => T + (1 - v / 100) * (H - T - B);
+  const pts = yrs.map(s => [s, p.seasons[s] && p.seasons[s][key]]).filter(d => d[1] != null);
+  const cm = p.career[key], last = pts.length ? pts[pts.length - 1][1] : null;
+  const path = pts.map((d, i) => `${i ? 'L' : 'M'}${x(d[0]).toFixed(1)},${y(d[1]).toFixed(1)}`).join('');
+  return `<figure class="sty-sm"><figcaption><span>${esc(label)}</span><b class="${styBand(last)}">${last ?? '–'}</b></figcaption>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)} by season: ${pts.map(d => `${seasonLabel(d[0])} ${d[1]}`).join(', ')}">
+      <line class="sty-mid" x1="${L}" x2="${W - R}" y1="${y(50)}" y2="${y(50)}"/>
+      ${cm != null ? `<line class="sty-cm" x1="${L}" x2="${W - R}" y1="${y(cm)}" y2="${y(cm)}"/>` : ''}
+      <path class="sty-line" d="${path}"/>
+      ${pts.map(d => `<circle class="sty-dot" cx="${x(d[0])}" cy="${y(d[1])}" r="4"/><circle class="sty-hit" cx="${x(d[0])}" cy="${y(d[1])}" r="11" data-tip="${esc(label)} · ${seasonLabel(d[0])}: <b>${d[1]}</b>${cm != null ? ` (career ${cm})` : ''}"/>`).join('')}
+    </svg></figure>`;
+}
+function styleBlock(p, X, heading = true) {
+  const sy = seasonLabel(p.labels.season_year), off = X.meta.off_keys, dk = X.meta.def_keys;
+  const live = p.labels.season_year >= X.meta.current;
+  const lastWord = p.labels.season_year < X.meta.latest ? 'Latest tracked season' : 'Last season';
+  const sLabel = live ? `This season (${sy}${p.blend ? `, ${Math.round(p.blend.weight * 100)}% this season / ${100 - Math.round(p.blend.weight * 100)}% his past` : ''})` : `${lastWord} (${sy}; ${seasonLabel(X.meta.current)} once tracked)`;
+  const row = (kind, i) => `<div class="sty-row"><div class="sty-k">${kind}</div>
+      <div><div class="small muted">Career style</div>${styChips(p.labels.career[i])}</div>
+      <div><div class="small muted">${sLabel}</div>${styChips(p.labels.season[i])}</div></div>`;
+  const yrs = Object.keys(p.seasons);
+  const gk = { Offense: 'o_pct', Defense: 'd_pct' };
+  const table = (keys, title) => `<div class="table-wrap"><table class="sty-table"><thead><tr><th>${title}</th>${yrs.map(s => `<th class="num">${seasonLabel(+s)}</th>`).join('')}<th class="num">Career</th></tr></thead><tbody>
+      <tr><td class="nowrap"><b>${title} grade</b></td>${yrs.map(s => `<td class="num">${styGrade(p.seasons[s][gk[title]])}</td>`).join('')}<td class="num">${styGrade(p.grade && p.grade[gk[title][0]].overall)}</td></tr>
+      ${keys.map(([k, l]) => `<tr><td class="nowrap">${esc(l)}</td>${yrs.map(s => { const v = p.seasons[s][k]; return `<td class="num ${styBand(v)}">${v ?? '–'}</td>`; }).join('')}<td class="num ${styBand(p.career[k])}">${p.career[k] ?? '–'}</td></tr>`).join('')}</tbody></table></div>`;
+  return `<section class="sty-block">${heading ? `<h3>Player style <span class="muted small">· nba.com tracking, ${seasonLabel(X.meta.seasons[0])} to ${seasonLabel(X.meta.latest)}</span></h3>` : ''}
+    ${p.types.season.length || p.types.career.length ? `<p class="small">${p.types.season.length ? `<b>Defender type (${sy}${p.blend ? ', blended' : ''}):</b> ${styTypeTags(p.types.season)} ` : ''}${p.types.career.length ? `<b>Career:</b> ${styTypeTags(p.types.career)}` : ''}</p>` : ''}
+    ${p.grade ? `<div class="stat-tiles sty-grades">${[['o', 'Offense'], ['d', 'Defense']].map(([k, l]) => { const g = p.grade[k]; return `<div class="tile"><div class="k">${l}</div><div class="v">${styGrade(g.season)}</div><div class="small muted">${live ? 'this season' : `${lastWord.toLowerCase()} (${sy})`}${g.season != null ? `, ${g.season}th pct` : ''}<br>overall: ${styGrade(g.overall, ', seasons weighted by games, recent ones more')}</div></div>`; }).join('')}</div>
+    <p class="small muted">Offense and defense grades compare him with every player that season (not just his position): offense weighs points per 48, true shooting, assists, ball security, usage and offensive rating; defense weighs shot defense (opponents' FG% vs normal), shots contested, at-rim defense, steals, blocks, defensive boards and defensive rating. Elite = top 5% of the league, very good 80th–95th percentile, good 60th–80th, OK 40th–60th, bad 20th–40th, very bad bottom 20%. Overall weights his seasons by games, each earlier season ×0.75.</p>` : ''}
+    ${row('Offense', 0)}${row('Defense', 1)}
+    <p class="small muted">Each trend is 0–100 against players at his position that season (higher = more of it, or better at it; ball security and discipline are inverted turnovers and fouls). Dots are seasons, the dashed line is his career average, the faint line is 50. Hover a dot for the value.</p>
+    <h4>Offense trends</h4><div class="sty-grid">${off.map(([k, l]) => styTrend(p, k, l, X)).join('')}</div>
+    <h4>Defense trends</h4><div class="sty-grid">${dk.map(([k, l]) => styTrend(p, k, l, X)).join('')}</div>
+    <details class="sty-details"><summary>Season-by-season table</summary>${table(off, 'Offense')}${table(dk, 'Defense')}
+      <p class="small muted">Colors follow the sheet: <span class="sv-elite">75+</span> · <span class="sv-good">60–74</span> · <span class="sv-mid">40–59</span> · <span class="sv-poor">25 or under</span> · <span class="sv-zero">0</span>.</p></details>
+  </section>`;
+}
+function bindStyTips(view) {
+  let tip = $('#sty-tip');
+  if (!tip) { tip = document.createElement('div'); tip.id = 'sty-tip'; tip.hidden = true; document.body.appendChild(tip); }
+  view.querySelectorAll('.sty-hit').forEach(c => {
+    c.addEventListener('mouseenter', () => { tip.innerHTML = c.dataset.tip; tip.hidden = false; const b = c.getBoundingClientRect(); tip.style.left = Math.min(innerWidth - 200, b.left + scrollX - 20) + 'px'; tip.style.top = (b.top + scrollY - 34) + 'px'; });
+    c.addEventListener('mouseleave', () => { tip.hidden = true; });
+  });
+}
+async function styleSlot(view, pid) {   // the style block on player / prospect pages, before the draft section
+  const got = await styleByPid(pid), slot = $('#sty-slot', view);
+  if (!got || !slot) return;
+  slot.innerHTML = styleBlock(got.p, got.X) + `<p class="small"><a href="#styles/${got.p.id}">Open in Player styles →</a></p>`;
+  bindStyTips(slot);
+}
+async function renderStyles(id) {
+  const view = $('#view');
+  const X = await styIndex();
+  if (id) {
+    const p = await getJSON(`data/styles/players/${id}.json`);
+    let season = null;
+    if (p.pid) { try { season = await getJSON(`data/season/players/${p.pid}.json`); } catch (e) { season = null; } }
+    const last = p.seasons[p.labels.season_year];
+    const da = await draftAge(p.pid);
+    const fb = last.age != null ? Math.round(last.age + X.meta.current - p.labels.season_year) : null;
+    view.innerHTML = `<a class="back" href="#styles">← Player styles</a>
+      <div class="hero"><div class="who"><h2>${esc(p.name)}</h2>${ageLine(da && da.age, da && da.year, fb, p.pid)}<p>${p.cur_team ? `<a href="#season/${p.cur_team}">${esc(p.cur_team)}</a> (${seasonLabel(X.meta.current)})` : `${esc(last.team || '')} <span class="muted">(${seasonLabel(p.labels.season_year)}; not on a ${seasonLabel(X.meta.current)} roster)</span>`} · ${esc(p.pos || '')} · ${Object.keys(p.seasons).length} seasons tracked${season ? ` · <a href="#splayer/${p.pid}">${seasonLabel(S._season ? S._season.season : 2027)} games</a>` : ''}${p.pid ? ` · <a href="https://www.basketball-reference.com/players/${p.pid[0]}/${p.pid}.html">Basketball-Reference</a>` : ''}</p></div>
+        <div class="stat-tiles"><div class="tile"><div class="k">Offense avg ${seasonLabel(p.labels.season_year)}</div><div class="v ${styBand(last.o_avg)}">${last.o_avg ?? '–'}</div><div class="small muted">career ${p.career.o_avg ?? '–'}</div></div>
+          <div class="tile"><div class="k">Defense avg ${seasonLabel(p.labels.season_year)}</div><div class="v ${styBand(last.d_avg)}">${last.d_avg ?? '–'}</div><div class="small muted">career ${p.career.d_avg ?? '–'}</div></div>
+          <div class="tile"><div class="k">Ratings (${seasonLabel(p.labels.season_year)})</div><div class="v small-v">${last.off_rating ?? '–'} / ${last.def_rating ?? '–'}</div><div class="small muted">off / def per 100</div></div></div></div>
+      ${styleBlock(p, X, false)}`;
+    bindStyTips(view);
+    return;
+  }
+  const f = state.sty = Object.assign({ q: '', team: '', pos: '', mode: 'cur' }, state.sty || {});
+  const teamOf = p => f.mode === 'cur' ? p.cur : f.mode === 'last' ? (p.last === X.meta.latest ? p.team : null) : (p.cur || p.team);
+  const teams = [...new Set(X.players.map(p => p.cur).concat(X.players.map(p => p.team)).filter(Boolean))].sort();
+  const cs = seasonLabel(X.meta.current);
+  const draw = () => {
+    const q = f.q.toLowerCase();
+    const rows = X.players.filter(p => (f.mode === 'all' || teamOf(p)) && (f.mode !== 'last' || p.id != null) && (!q || p.name.toLowerCase().includes(q)) && (!f.team || teamOf(p) === f.team) && (!f.pos || (p.pos || '').includes(f.pos)));
+    $('#sty-body').innerHTML = rows.slice(0, 600).map(p => p.id == null ? `<tr><td class="name-cell">${esc(p.name)}</td><td>${esc(p.cur || '')}</td><td>${esc(p.pos || '')}</td><td class="num">0</td><td colspan="4" class="small muted">${p.rookie ? 'Rookie: ' : ''}no NBA tracking yet${p.rookie ? '' : ' (under the scripts\' minutes cutoff)'}</td></tr>`
+      : `<tr class="link" data-href="#styles/${p.id}"><td class="name-cell"><a href="#styles/${p.id}">${esc(p.name)}</a></td><td>${teamOf(p) ? esc(teamOf(p)) : `<span class="muted">${esc(p.team || '')} ${seasonLabel(p.last)}</span>`}${f.mode === 'last' && p.cur && p.cur !== p.team ? ` <span class="muted small">→ ${esc(p.cur)}</span>` : ''}</td><td>${esc(p.pos || '')}</td><td class="num">${p.n}</td>
+      <td>${styGrade(p.og)}</td><td>${styGrade(p.dg)}</td><td class="small hide-sm">${styOrder(p.off).map(l => `<span class="d-tag ${styTone(l) === 'mid' ? '' : styTone(l)}">${esc(l)}</span>`).join('')}</td>
+      <td class="small hide-sm">${styOrder(p.def).map(l => `<span class="d-tag ${styTone(l) === 'mid' ? '' : styTone(l)}">${esc(l)}</span>`).join('')} ${p.types.map(k => `<span class="sty-type sty-${k}">${STY_TYPES[k]}</span>`).join(' ')}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No players match.</td></tr>';
+    $('#sty-count').textContent = `${rows.length} players`;
+    bindRowLinks(view);
+  };
+  view.innerHTML = `<h2>Player styles</h2>
+    <p class="muted">How every NBA player scores and defends, from nba.com tracking (shot defense by distance, hustle, speed, dunks and rim attempts) as gathered by our nba_api scripts, ${seasonLabel(X.meta.seasons[0])} to ${seasonLabel(X.meta.latest)}. Each stat is 0–100 against his position that season; the style labels and defender types follow the PLAYERDEFENSEDROPDOWN sheet. Teams and the roster filter are ${cs}; the styles are ${X.meta.latest >= X.meta.current ? `${cs} (early in the season each player's is blended with his past seasons by games played)` : `from ${seasonLabel(X.meta.latest)} until ${cs} tracking is added`}. Open a player for his career trends.</p>
+    <div class="toolbar"><input id="sty-q" type="search" placeholder="Search players" value="${esc(f.q)}" aria-label="Search players">
+      <select id="sty-team" aria-label="Team"><option value="">All teams</option>${teams.map(t => `<option ${f.team === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
+      <select id="sty-pos" aria-label="Position"><option value="">All positions</option>${['G', 'F', 'C'].map(t => `<option value="${t}" ${f.pos === t ? 'selected' : ''}>${{ G: 'Guards', F: 'Forwards', C: 'Centers' }[t]}</option>`).join('')}</select>
+      <select id="sty-mode" aria-label="Rosters">${[['cur', `${cs} rosters`], ['last', `${seasonLabel(X.meta.latest)} teams`], ['all', 'All players since ' + seasonLabel(X.meta.seasons[0])]].map(([k, l]) => `<option value="${k}" ${f.mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select> <span id="sty-count" class="muted small"></span></div>
+    <div class="table-wrap"><table><thead><tr><th>Player</th><th>Team</th><th>Pos</th><th class="num">Seasons</th><th title="Offense grade vs the whole league (${X.meta.latest >= X.meta.current ? cs : seasonLabel(X.meta.latest)})">Offense</th><th title="Defense grade vs the whole league">Defense</th><th class="hide-sm">Offense style (${X.meta.latest >= X.meta.current ? cs : `last season, ${seasonLabel(X.meta.latest)}`})</th><th class="hide-sm">Defense style</th></tr></thead><tbody id="sty-body"></tbody></table></div>
+    <p class="small muted">Defender types (the sheet's name colors): ${Object.keys(STY_TYPES).map(k => `<span class="sty-type sty-${k}">${STY_TYPES[k]}</span>`).join(' ')}</p>`;
+  $('#sty-q').addEventListener('input', e => { f.q = e.target.value; draw(); });
+  $('#sty-team').addEventListener('change', e => { f.team = e.target.value; save(); draw(); });
+  $('#sty-pos').addEventListener('change', e => { f.pos = e.target.value; save(); draw(); });
+  $('#sty-mode').addEventListener('change', e => { f.mode = e.target.value; save(); draw(); });
+  draw();
+}
+
 /* ---------- router ---------- */
 async function route() {
   const h = location.hash.replace(/^#/, '') || 'gms';
   const [page, arg] = h.split('/');
-  document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === (page === 'gm' || page === 'former' ? 'gms' : page === 'team' ? 'teams' : page === 'coach' || page === 'fcoach' ? 'coaches' : page === 'injuries' ? 'outlook' : page === 'game' || page === 'splayer' ? 'season' : page === 'prospect' ? 'drafts' : page)));
+  document.querySelectorAll('.tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === (page === 'gm' || page === 'former' ? 'gms' : page === 'team' ? 'teams' : page === 'coach' || page === 'fcoach' ? 'coaches' : page === 'injuries' ? 'outlook' : page === 'game' || page === 'splayer' ? 'season' : page === 'prospect' ? 'drafts' : page === 'sty' ? 'styles' : page)));
   const view = $('#view');
   view.hidden = false;
   view.classList.remove('hide-initial');
   try {
+    if (page === 'splayer' || page === 'prospect' || page === 'styles') await BIRTHS_P;
     if (page === 'gm' && arg) await renderGM(arg);
     else if (page === 'former' && arg) await renderGM(arg, true);
     else if (page === 'coaches') renderCoaches();
@@ -1106,6 +1278,7 @@ async function route() {
     else if (page === 'season') await renderSeason(arg);
     else if (page === 'game') await renderGame(arg);
     else if (page === 'splayer') await renderSeasonPlayer(arg);
+    else if (page === 'styles') await renderStyles(arg);
     else if (page === 'drafts') await renderDrafts(arg, h.split('/')[2]);
     else if (page === 'prospect') await renderProspect(arg, h.split('/')[2]);
     else if (page === 'coach' && arg) await renderCoach(arg, false);
