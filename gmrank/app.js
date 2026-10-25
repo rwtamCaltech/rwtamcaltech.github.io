@@ -778,11 +778,13 @@ const BIRTHS_P = Promise.all([getJSON('data/births.json').then(b => { BIRTHS = b
 const SAL_CLS = { 'Great value': 'VERY_GOOD', 'Good value': 'GOOD', 'Right-sized': 'OK', 'Bad value': 'BAD', 'Very bad value': 'VERY_BAD',
   Bargain: 'VERY_GOOD', 'Team-friendly': 'GOOD', 'Fair deal': 'OK', Overpaid: 'BAD', 'Toxic contract': 'VERY_BAD' };
 const salPill = l => l ? `<span class="pill ${SAL_CLS[l] || 'OK'}">${esc(l)}</span>` : '';
+const CHIP = 'Expiring contract / trade chip', FA = 'Prospective free agents', PRONE = 'Injury prone';
+const chipPill = c => c && c.expiring ? `<span class="pill CHIP" title="Overpaid, but off the books after ${seasonLabel(SAL.season)}: a big expiring salary to match in trades">${CHIP}</span>` : '';
 const optTxt = o => ({ PO: 'player option', TO: 'team option', ETO: 'early termination option' })[o] || '';
 const salaryLine = pid => { const r = pid && SALBY[pid]; if (!r) return '';
   if (!r.contract) return `<p class="age-line">${r.tw ? 'Two-way contract' : 'No standard contract on file'}</p>`;
   const c = r.contract, opts = c.options.map(o => `${seasonLabel(o.season)} ${optTxt(o.option)}${o.decision ? ` (${o.decision})` : ''}`);
-  return `<p class="age-line">${money(c.salary)} this season (${c.share}% of the cap) · ${c.years_left} year${c.years_left === 1 ? '' : 's'} left, ${money(c.total_money)} total${opts.length ? ` · ${esc(opts.join(', '))}` : ''} · ${salPill(c.label)} ${c.tag !== 'Fair deal' ? salPill(c.tag) : ''}</p>`; };
+  return `<p class="age-line">${money(c.salary)} this season (${c.share}% of the cap) · ${c.years_left} year${c.years_left === 1 ? '' : 's'} left, ${money(c.total_money)} total${opts.length ? ` · ${esc(opts.join(', '))}` : ''} · ${salPill(c.label)} ${c.tag !== 'Fair deal' ? salPill(c.tag) : ''} ${chipPill(c)}${c.free_agent && !c.expiring ? ` <span class="muted small">free agent after ${seasonLabel(SAL.season)}</span>` : ''}</p>`; };
 function salaryBlock(pid) {
   const r = pid && SALBY[pid];
   if (!r) return '';
@@ -792,11 +794,26 @@ function salaryBlock(pid) {
   return `<h3>Salary</h3>
     <div class="stat-tiles"><div class="tile"><div class="k">${seasonLabel(SAL.season)} salary</div><div class="v">${money(c.salary)}</div><div class="small muted">${c.share}% of the ${money(SAL.cap)} cap</div></div>
       <div class="tile"><div class="k">This season</div><div class="v">${salPill(c.label)}</div><div class="small muted">${verdict}</div></div>
-      <div class="tile"><div class="k">Whole contract</div><div class="v">${salPill(c.tag)}</div><div class="small muted">${c.total_diff >= 0 ? '+' : ''}${c.total_diff} cap points over the ${c.expected_years} season${c.expected_years === 1 ? '' : 's'} it likely runs · ${money(c.total_money)} on the books</div></div></div>
+      <div class="tile"><div class="k">Whole contract</div><div class="v">${salPill(c.tag)}</div><div class="small muted">${c.total_diff >= 0 ? '+' : ''}${c.total_diff} cap points over the ${c.expected_years} season${c.expected_years === 1 ? '' : 's'} it likely runs · ${money(c.total_money)} on the books</div></div>
+      ${c.free_agent ? `<div class="tile"><div class="k">After this season</div><div class="v">${c.expiring ? chipPill(c) : '<span class="pill OK">Free agent</span>'}</div><div class="small muted">${c.expiring ? `overpaid, but his ${money(c.salary)} comes off the books after ${seasonLabel(SAL.season)}: useful salary to match in a trade` : `prospective free agent after ${seasonLabel(SAL.season)}`}</div></div>` : ''}</div>
     <div class="table-wrap"><table><thead><tr><th>Season</th><th class="num">Salary</th><th class="num">% of cap</th><th class="num">Worth (% of cap)</th><th class="num">Value</th><th>Option</th><th class="num hide-sm">Projected impact</th></tr></thead><tbody>
       ${c.years.map(y => `<tr${y.counts ? '' : ' class="muted"'}><td>${seasonLabel(y.season)}</td><td class="num">${money(y.salary)}</td><td class="num">${y.share}%</td><td class="num">${y.fair}%</td>
         <td class="num ${y.diff >= 4 ? 'd-col-green' : y.diff <= -4 ? 'd-col-red' : ''}">${y.diff > 0 ? '+' : ''}${y.diff}</td><td>${y.option ? `${optTxt(y.option)}${y.decision ? ` · <i>${esc(y.decision)}</i>` : ''}` : (y.counts ? '' : 'after the contract likely ends')}</td><td class="num hide-sm">${sgn(y.bpm, 1)}</td></tr>`).join('')}</tbody></table></div>
     <p class="small muted">Worth = the minimum plus his projected VORP ((impact + 2) × projected minutes ÷ 3,936; impact is his Outlook BPM/EPM blend over his last three seasons, recent ones weighted more, and minutes are cut for injuries) at the league's going rate: ${SAL.rate}% of the cap per VORP, what veterans are paid above the minimum. Later seasons age his impact and assume the cap grows ${Math.round((SAL.cap_growth - 1) * 100)}% a year. Team options are picked up only if he's worth it; player options are taken only if he's overpaid. Value labels: great value 10+ cap points under his worth, good 4–10, right-sized within 4, bad 4–10 over, very bad 10+ over. <a href="#salary">All salaries →</a></p>`;
+}
+const INJ_CLS = { 'Injury prone': 'VERY_BAD', 'Missed time': 'BAD', Durable: 'GOOD' };
+const injPill = l => l ? `<span class="pill ${INJ_CLS[l]}">${esc(l)}</span>` : '';
+function injuryBlock(pid) {
+  const a = pid && SALBY[pid] && SALBY[pid].avail;
+  if (!a) return '';
+  const cur = a.current;
+  return `<h3>Injuries</h3>
+    ${cur ? `<p><b>Current:</b> ${esc(cur.injury)}${cur.est_return ? ` · ${cur.est_return === 'season' ? 'out for the season' : `estimated return ${fmtDate(cur.est_return)}`}` : ''}${cur.note ? ` <span class="muted">(${esc(cur.note)})</span>` : ''}</p>` : ''}
+    ${a.seasons.length ? `<div class="stat-tiles"><div class="tile"><div class="k">Last ${a.seasons.length} season${a.seasons.length === 1 ? '' : 's'}</div><div class="v">${a.pct}% missed</div><div class="small muted">${a.missed} of ${a.available} games ${injPill(a.label)}</div></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Season</th><th class="num">Games played</th><th class="num">Missed</th><th class="num">% missed</th></tr></thead><tbody>
+      ${a.seasons.map(x => `<tr><td>${seasonLabel(x.season)}</td><td class="num">${x.g} of ${x.of}</td><td class="num">${x.of - x.g}</td><td class="num ${x.g / x.of <= 0.7 ? 'd-col-red' : ''}">${Math.round(100 * (x.of - x.g) / x.of)}%</td></tr>`).join('')}</tbody></table></div>`
+      : '<p class="muted">No full NBA season yet to judge availability.</p>'}
+    <p class="small muted">Games missed out of 82 in each of the last three seasons, counted from his first 40-game season (a season missed entirely counts). Injury prone = ${SAL.injury.prone}%+ missed over 2+ seasons, missed time = ${SAL.injury.some}%+, durable = ${SAL.injury.durable}% or less (rotation players, 20+ min a game). Missed games also include rest, suspensions and coach's decisions: our sources (Basketball-Reference game logs say only "Inactive") don't record the injury behind each one, so only current long-term injuries (from team reports and ESPN's tracker) are named.</p>`;
 }
 function renderSalary() {
   const view = $('#view');
@@ -804,18 +821,21 @@ function renderSalary() {
   const f = state.sal = Object.assign({ label: '', team: '' }, state.sal || {});
   const teams = [...new Set(SAL.players.map(r => r.team))].sort();
   const draw = () => {
-    const rows = SAL.players.filter(r => r.contract && (!f.team || r.team === f.team) && (!f.label || r.contract.label === f.label || r.contract.tag === f.label));
-    $('#sal-body').innerHTML = rows.map((r, i) => { const c = r.contract; return `<tr class="link" data-href="#splayer/${r.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${r.pid}">${esc(r.name)}</a></td><td>${r.team}</td><td class="num">${r.age ?? '–'}</td>
-      <td class="num">${money(c.salary)}</td><td class="num strong">${c.share}%</td><td class="num">${c.fair}%</td><td class="num ${c.diff >= 4 ? 'd-col-green' : c.diff <= -4 ? 'd-col-red' : ''}">${c.diff > 0 ? '+' : ''}${c.diff}</td>
-      <td>${salPill(c.label)}</td><td>${salPill(c.tag)}</td><td class="num hide-sm">${c.years_left}${c.expected_years !== c.years_left ? ` <span class="muted small">(likely ${c.expected_years})</span>` : ''}</td><td class="small hide-sm">${c.options.map(o => `${seasonLabel(o.season)} ${o.option}${o.decision ? ': ' + esc(o.decision) : ''}`).join('<br>')}</td></tr>`; }).join('') || '<tr><td colspan="12" class="empty">No players match.</td></tr>';
+    let rows = SAL.players.filter(r => (f.label === PRONE ? r.avail && r.avail.label === PRONE : r.contract) && (!f.team || r.team === f.team) && (!f.label || f.label === PRONE || r.contract.label === f.label || r.contract.tag === f.label
+      || (f.label === CHIP && r.contract.expiring) || (f.label === FA && r.contract.free_agent)));
+    if (f.label === PRONE) rows = [...rows].sort((a, b) => b.avail.pct - a.avail.pct);
+    const avCell = r => { const a = r.avail; return a && a.pct != null ? `${a.missed}/${a.available} (${a.pct}%)${a.label && a.label !== 'Durable' ? ' ' + injPill(a.label) : ''}${a.current ? `<br><span class="small">${esc(a.current.injury)}</span>` : ''}` : '<span class="muted">–</span>'; };
+    $('#sal-body').innerHTML = rows.map((r, i) => { const c = r.contract || { salary: null, share: '–', fair: '–', diff: 0, options: [], years_left: '–', expected_years: '–' }; return `<tr class="link" data-href="#splayer/${r.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${r.pid}">${esc(r.name)}</a></td><td>${r.team}</td><td class="num">${r.age ?? '–'}</td>
+      <td class="num">${money(c.salary)}</td>${r.contract ? `<td class="num strong">${c.share}%</td><td class="num">${c.fair}%</td><td class="num ${c.diff >= 4 ? 'd-col-green' : c.diff <= -4 ? 'd-col-red' : ''}">${c.diff > 0 ? '+' : ''}${c.diff}</td>` : `<td colspan="3" class="small muted">${r.tw ? 'two-way contract' : 'no standard contract on file'}</td>`}
+      <td>${salPill(c.label)}</td><td>${salPill(c.tag)}${c.expiring ? '<br>' + chipPill(c) : ''}</td><td class="num hide-sm">${c.years_left}${c.expected_years !== c.years_left ? ` <span class="muted small">(likely ${c.expected_years})</span>` : ''}</td><td class="small hide-sm">${c.options.map(o => `${seasonLabel(o.season)} ${o.option}${o.decision ? ': ' + esc(o.decision) : ''}`).join('<br>')}</td><td class="small hide-sm">${avCell(r)}</td></tr>`; }).join('') || '<tr><td colspan="13" class="empty">No players match.</td></tr>';
     $('#sal-count').textContent = `${rows.length} players`;
     bindRowLinks(view);
   };
   view.innerHTML = `<h2>Salary</h2>
-    <p class="muted">Every ${seasonLabel(SAL.season)} contract as a share of the ${money(SAL.cap)} cap, against what the player is worth from our Outlook projection (impact over his last three seasons, recent ones weighted more, and minutes cut for injuries), at the league's going rate of ${SAL.rate}% of the cap per VORP. <b>Value</b> grades this season; <b>contract</b> grades every season it will likely run, aging his impact, with team options declined when he isn't worth them and player options picked up when he's overpaid. A <b>toxic contract</b> is overpaid now and by 15+ cap points over 2+ remaining seasons.</p>
-    <div class="toolbar"><select id="sal-label" aria-label="Label"><option value="">All labels</option><optgroup label="This season">${SAL.labels.map(l => `<option ${f.label === l ? 'selected' : ''}>${l}</option>`).join('')}</optgroup><optgroup label="Whole contract">${SAL.tags.map(l => `<option ${f.label === l ? 'selected' : ''}>${l}</option>`).join('')}</optgroup></select>
+    <p class="muted">Every ${seasonLabel(SAL.season)} contract as a share of the ${money(SAL.cap)} cap, against what the player is worth from our Outlook projection (impact over his last three seasons, recent ones weighted more, and minutes cut for injuries), at the league's going rate of ${SAL.rate}% of the cap per VORP. <b>Value</b> grades this season; <b>contract</b> grades every season it will likely run, aging his impact, with team options declined when he isn't worth them and player options picked up when he's overpaid. A <b>toxic contract</b> is overpaid now and by 15+ cap points over 2+ remaining seasons. <b>Prospective free agents</b> are off the books after ${seasonLabel(SAL.season)} (one year left, or likely one once options are decided); the overpaid ones are <b>expiring contracts / trade chips</b>: big salaries a team can match in a trade without taking on future money.</p>
+    <div class="toolbar"><select id="sal-label" aria-label="Label"><option value="">All labels</option><optgroup label="This season">${SAL.labels.map(l => `<option ${f.label === l ? 'selected' : ''}>${l}</option>`).join('')}</optgroup><optgroup label="Whole contract">${SAL.tags.map(l => `<option ${f.label === l ? 'selected' : ''}>${l}</option>`).join('')}</optgroup><optgroup label="After this season">${[CHIP, FA].map(l => `<option ${f.label === l ? 'selected' : ''}>${l}</option>`).join('')}</optgroup><optgroup label="Availability">${`<option ${f.label === PRONE ? 'selected' : ''}>${PRONE}</option>`}</optgroup></select>
       <select id="sal-team" aria-label="Team"><option value="">All teams</option>${teams.map(t => `<option ${f.team === t ? 'selected' : ''}>${t}</option>`).join('')}</select> <span id="sal-count" class="muted small"></span></div>
-    <div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Age</th><th class="num">Salary</th><th class="num">% of cap</th><th class="num" title="What his projected play is worth, as a share of the cap">Worth</th><th class="num" title="Worth minus paid, cap points">+/−</th><th>Value</th><th>Contract</th><th class="num hide-sm">Years</th><th class="hide-sm">Options</th></tr></thead><tbody id="sal-body"></tbody></table></div>`;
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Age</th><th class="num">Salary</th><th class="num">% of cap</th><th class="num" title="What his projected play is worth, as a share of the cap">Worth</th><th class="num" title="Worth minus paid, cap points">+/−</th><th>Value</th><th>Contract</th><th class="num hide-sm">Years</th><th class="hide-sm">Options</th><th class="hide-sm" title="Games missed of 82 over the last three seasons (from his first 40-game season)">Missed games</th></tr></thead><tbody id="sal-body"></tbody></table></div>`;
   $('#sal-label').addEventListener('change', e => { f.label = e.target.value; save(); draw(); });
   $('#sal-team').addEventListener('change', e => { f.team = e.target.value; save(); draw(); });
   draw();
@@ -857,7 +877,7 @@ async function renderSeasonPlayer(pid) {
         <div class="stat-tiles">${projTile}</div></div>
       <div id="sty-slot"></div>
       ${prof ? draftProfileBlock(prof, prof.year, I, PD) : ''}
-      ${salaryBlock(pid)}`;
+      ${salaryBlock(pid)}${injuryBlock(pid)}`;
     styleSlot(view, pid);
     bindRowLinks(view);
     return;
@@ -872,7 +892,7 @@ async function renderSeasonPlayer(pid) {
         <td class="num">${(x.mp || 0).toFixed(0)}</td><td class="num">${x.pts ?? '–'}</td><td class="num">${x.trb ?? '–'}</td><td class="num">${x.ast ?? '–'}</td><td class="num">${sgn(x.pm, 0)}</td><td class="num">${x.bpm == null ? '–' : sgn(x.bpm, 1)}</td><td class="num">${sgn(x.exp, 1)}</td><td>${gradePill(x.grade)}</td><td>${gradePill(x.off_grade)}</td><td>${gradePill(x.def_grade)}</td></tr>`).join('')}</tbody></table></div>
     <div id="sty-slot"></div>
     ${prof ? draftProfileBlock(prof, prof.year, I, PD) : ''}
-    ${salaryBlock(pid)}`;
+    ${salaryBlock(pid)}${injuryBlock(pid)}`;
   bindRowLinks(view);
   styleSlot(view, pid);
 }
@@ -1266,6 +1286,9 @@ function stySummary(p) {   // one sentence of strengths, one of weaknesses, from
   const pick = tone => { const both = cur.filter(l => styTone(l) === tone && prev.includes(l)), one = [...cur, ...prev].filter(l => styTone(l) === tone && !both.includes(l));
     return [...new Set([...both, ...one])].slice(0, 7); };
   const pros = pick('good'), cons = pick('bad');
+  const av = p.pid && SALBY[p.pid] && SALBY[p.pid].avail, ayrs = av && av.seasons.length ? `${seasonLabel(av.seasons[0].season)}–${seasonLabel(av.seasons[av.seasons.length - 1].season)}` : '';
+  if (av && av.label === 'Injury prone') cons.unshift(`injury prone (missed ${av.pct}% of games, ${ayrs})`);
+  if (av && av.label === 'Durable') pros.push(`durable (missed ${av.pct}% of games, ${ayrs})`);
   return `<div class="sty-summary"><p><b>Strengths</b> (${yrs}): ${pros.length ? esc(styList(pros)) : 'nothing stands out in the tracking numbers'}.</p>
     <p><b>Weaknesses</b>: ${cons.length ? esc(styList(cons)) : 'no clear holes in the tracking numbers'}.</p>
     <p class="small muted">Labels seen in both seasons come first.</p></div>`;
