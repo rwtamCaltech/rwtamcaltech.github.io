@@ -269,3 +269,8 @@ span.sv-elite, span.sv-good, span.sv-mid, span.sv-poor, span.sv-zero, b.sv-elite
 .sty-details summary { cursor: pointer; margin: 10px 0; font-weight: 600; }
 .small-v { font-size: 16px !important; }
 .age-line { margin: 0 0 2px; font-weight: 600; }
+.sty-summary { margin: 10px 0; padding: 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+.sty-summary p { margin: 4px 0; }
+.sty-comp { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 4px 24px; }
+.sty-comp ol { margin: 4px 0 8px; padding-left: 22px; }
+.sty-comp li { margin: 2px 0; }

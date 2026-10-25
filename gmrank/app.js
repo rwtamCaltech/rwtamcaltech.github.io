@@ -772,9 +772,13 @@ const ordinal = n => n + ((n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({1: 'st', 2
 
 const ageNow = (draftAge, year) => draftAge == null ? null : draftAge + (Date.now() - new Date(year, 5, 25)) / (365.25 * 864e5);   // draft night ~ June 25
 let BIRTHS = {};
-const BIRTHS_P = getJSON('data/births.json').then(b => { BIRTHS = b; }).catch(() => {});
+let BODIES = {};
+const BIRTHS_P = Promise.all([getJSON('data/births.json').then(b => { BIRTHS = b; }).catch(() => {}), getJSON('data/bodies.json').then(b => { BODIES = b; }).catch(() => {})]);
+const bodyLine = pid => { const b = pid && BODIES[pid]; if (!b) return ''; const [h, w, g, d, t] = b;
+  return `<p class="age-line">${htFmt(h)}, ${w} lb · <span title="Build from weight vs what is typical for a ${g.toLowerCase()} his height on our draft boards (not body fat)">${t}</span> <span class="muted small">(${d === 0 ? 'typical' : `${Math.abs(d)} lb ${d > 0 ? 'heavier' : 'lighter'} than typical`} for a ${g.toLowerCase()} his height)</span></p>`; };
 const ageFromBirth = pid => { const b = pid && BIRTHS[pid]; if (!b) return null; const d = new Date(b + 'T12:00:00'), n = new Date(); return n.getFullYear() - d.getFullYear() - (n < new Date(n.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0); };
-const ageLine = (draftAge, year, fallback, pid) => { const ex = ageFromBirth(pid); if (ex != null) return `<p class="age-line">Age ${ex}${draftAge != null ? ` <span class="muted small">(${dnum(draftAge, 1)} at the ${year} draft)</span>` : ''}</p>`; const a = ageNow(draftAge, year); return a != null ? `<p class="age-line">Age ${Math.floor(a)} <span class="muted small">(${dnum(draftAge, 1)} at the ${year} draft)</span></p>` : fallback != null ? `<p class="age-line">Age ${fallback}</p>` : ''; };
+const ageLine0 = (draftAge, year, fallback, pid) => { const ex = ageFromBirth(pid); if (ex != null) return `<p class="age-line">Age ${ex}${draftAge != null ? ` <span class="muted small">(${dnum(draftAge, 1)} at the ${year} draft)</span>` : ''}</p>`; const a = ageNow(draftAge, year); return a != null ? `<p class="age-line">Age ${Math.floor(a)} <span class="muted small">(${dnum(draftAge, 1)} at the ${year} draft)</span></p>` : fallback != null ? `<p class="age-line">Age ${fallback}</p>` : ''; };
+const ageLine = (draftAge, year, fallback, pid) => ageLine0(draftAge, year, fallback, pid) + bodyLine(pid);
 async function draftAge(pid) {
   try { const pr = (await getJSON('data/drafts/profiles.json'))[pid]; if (!pr) return null; const row = (await draftYear(pr.year)).rows.find(q => q.pid === pid); return row && row.Age != null ? { age: row.Age, year: pr.year } : null; } catch (e) { return null; }
 }
@@ -1153,7 +1157,7 @@ const styTypeTags = ts => ts.map(([k]) => `<span class="sty-type sty-${k}">${esc
 const STY_GRADES = [[95, 'Elite', 'VERY_GOOD'], [80, 'Very good', 'VERY_GOOD'], [60, 'Good', 'GOOD'], [40, 'OK', 'OK'], [20, 'Bad', 'BAD'], [0, 'Very bad', 'VERY_BAD']];
 const styGrade = (pct, tip = '') => { if (pct == null) return '<span class="muted">–</span>'; const g = STY_GRADES.find(x => pct >= x[0]); return `<span class="pill ${g[2]}" title="${pct}th percentile of the league${tip}">${g[1]}</span>`; };
 let styIdx = null;
-async function styIndex() { return styIdx || (styIdx = await getJSON('data/styles/index.json')); }
+async function styIndex() { if (!styIdx) { styIdx = await getJSON('data/styles/index.json'); X_META = styIdx.meta; } return styIdx; }
 async function styleByPid(pid) {
   if (!pid) return null;
   try { const X = await styIndex(); const e = X.players.find(p => p.pid === pid); return e ? { X, p: await getJSON(`data/styles/players/${e.id}.json`) } : null; } catch (e) { return null; }
@@ -1190,6 +1194,8 @@ function styleBlock(p, X, heading = true) {
     ${p.grade ? `<div class="stat-tiles sty-grades">${[['o', 'Offense'], ['d', 'Defense']].map(([k, l]) => { const g = p.grade[k]; return `<div class="tile"><div class="k">${l}</div><div class="v">${styGrade(g.season)}</div><div class="small muted">${live ? 'this season' : `${lastWord.toLowerCase()} (${sy})`}${g.season != null ? `, ${g.season}th pct` : ''}<br>overall: ${styGrade(g.overall, ', seasons weighted by games, recent ones more')}</div></div>`; }).join('')}</div>
     <p class="small muted">Offense and defense grades compare him with every player that season (not just his position): offense weighs points per 48, true shooting, assists, ball security, usage and offensive rating; defense weighs shot defense (opponents' FG% vs normal), shots contested, at-rim defense, steals, blocks, defensive boards and defensive rating. Elite = top 5% of the league, very good 80th–95th percentile, good 60th–80th, OK 40th–60th, bad 20th–40th, very bad bottom 20%. Overall weights his seasons by games, each earlier season ×0.75.</p>` : ''}
     ${row('Offense', 0)}${row('Defense', 1)}
+    ${stySummary(p)}
+    ${styComplement(p)}
     <p class="small muted">Each trend is 0–100 against players at his position that season (higher = more of it, or better at it; ball security and discipline are inverted turnovers and fouls). Dots are seasons, the dashed line is his career average, the faint line is 50. Hover a dot for the value.</p>
     <h4>Offense trends</h4><div class="sty-grid">${off.map(([k, l]) => styTrend(p, k, l, X)).join('')}</div>
     <h4>Defense trends</h4><div class="sty-grid">${dk.map(([k, l]) => styTrend(p, k, l, X)).join('')}</div>
@@ -1197,6 +1203,34 @@ function styleBlock(p, X, heading = true) {
       <p class="small muted">Colors follow the sheet: <span class="sv-elite">75+</span> · <span class="sv-good">60–74</span> · <span class="sv-mid">40–59</span> · <span class="sv-poor">25 or under</span> · <span class="sv-zero">0</span>.</p></details>
   </section>`;
 }
+const styList = a => a.length <= 1 ? (a[0] || '') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1];
+function stySummary(p) {   // one sentence of strengths, one of weaknesses, from this season's and last season's labels
+  const cur = [...p.labels.season[0], ...p.labels.season[1]], prev = p.labels.prev ? [...p.labels.prev[0], ...p.labels.prev[1]] : [];
+  const yrs = p.labels.prev_year ? `${seasonLabel(p.labels.prev_year)} and ${seasonLabel(p.labels.season_year)}` : seasonLabel(p.labels.season_year);
+  const pick = tone => { const both = cur.filter(l => styTone(l) === tone && prev.includes(l)), one = [...cur, ...prev].filter(l => styTone(l) === tone && !both.includes(l));
+    return [...new Set([...both, ...one])].slice(0, 7); };
+  const pros = pick('good'), cons = pick('bad');
+  return `<div class="sty-summary"><p><b>Strengths</b> (${yrs}): ${pros.length ? esc(styList(pros)) : 'nothing stands out in the tracking numbers'}.</p>
+    <p><b>Weaknesses</b>: ${cons.length ? esc(styList(cons)) : 'no clear holes in the tracking numbers'}.</p>
+    <p class="small muted">Labels seen in both seasons come first.</p></div>`;
+}
+function styComplement(p) {
+  const c = p.complement, f = p.team_fit;
+  if (!c && !f) return '';
+  const ex = e => `<li><a href="#styles/${e.id}">${esc(e.name)}</a> <span class="muted small">(${seasonLabel(e.season)}${e.team ? ', ' + esc(e.team) : ''}; fit ${e.fit})</span>${e.shows.length ? ` <span class="small">${esc(styList(e.shows))}</span>` : ''}</li>`;
+  const fw = !f ? '' : f.score >= 70 ? ['GOOD', 'brings what they need'] : f.score <= 30 ? ['BAD', 'mostly duplicates what they have'] : ['OK', 'a mix'];
+  return `<h4>Best complement</h4>
+    ${c ? `<p><b>${esc(c.archetype.charAt(0).toUpperCase() + c.archetype.slice(1))}</b>${c.ball ? ', who does not need the ball' : ''}. <span class="small muted">His gaps over the last two seasons: ${esc(styList(c.needs))}.</span></p>
+    <div class="sty-comp"><div><div class="small muted">Best fits in ${seasonLabel(X_LATEST())}</div><ol>${c.now.map(ex).join('')}</ol></div>
+      ${c.past.length ? `<div><div class="small muted">Earlier seasons</div><ol>${c.past.map(ex).join('')}</ol></div>` : ''}</div>
+    <p class="small muted">Fit = the partner's average 0–100 score (within his position) on these gaps in that season (40+ games, 20+ min); ball-dominant players get partners with lower usage.</p>` : ''}
+    ${f ? `<h4>Fit with the ${esc(f.team_name)} (${seasonLabel(X_CUR())})</h4>
+      <p><span class="pill ${fw[0]}">${f.score}/100</span> ${fw[1]}. ${f.brings.length ? `He brings <b>${esc(styList(f.brings))}</b>, which the rest of the rotation lacks. ` : 'He adds little the rotation lacks. '}${f.duplicates.length ? `Already strong there: ${esc(styList(f.duplicates))}. ` : ''}<span class="muted">Rotation's biggest gaps: ${esc(styList(f.team_needs))}.</span></p>
+      ${f.best_mate ? `<p>Best complement on the roster: <a href="#styles/${f.best_mate.id}">${esc(f.best_mate.name)}</a>${f.best_mate.covers.length ? ` (covers his ${esc(styList(f.best_mate.covers))})` : ''}.</p>` : ''}
+      <p class="small muted">Score = percentile among every team's top-10 projected rotation (Outlook minutes): how much his strengths line up with what his teammates (minutes-weighted, last two seasons) lack, minus overlap with what they already do well.</p>` : ''}`;
+}
+let X_META = null;
+const X_LATEST = () => X_META ? X_META.latest : 2026, X_CUR = () => X_META ? X_META.current : 2027;
 function bindStyTips(view) {
   let tip = $('#sty-tip');
   if (!tip) { tip = document.createElement('div'); tip.id = 'sty-tip'; tip.hidden = true; document.body.appendChild(tip); }
