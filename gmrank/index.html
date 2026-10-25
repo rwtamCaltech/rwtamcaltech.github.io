@@ -26,6 +26,7 @@
     <a href="#season" data-tab="season">2026-27 Teams</a>
     <a href="#drafts" data-tab="drafts">NBA Drafts</a>
     <a href="#styles" data-tab="styles">Player styles</a>
+    <a href="#salary" data-tab="salary">Salary</a>
     <a href="#method" data-tab="method">Method</a>
   </nav>
   <button class="theme" id="theme" type="button" aria-label="Toggle dark mode" title="Toggle theme"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
@@ -72,6 +73,8 @@
     <p>Updated nightly at 2 AM Pacific. For every game, each team's expectation is the minutes-weighted expected impact of the players who actually played (Outlook projection, blended with this season's box-score impact after 10 games), and the expected margin adds 2 points for home court. The coach score adds up actual minus expected margins; the injury score adds up what absent rotation players would have contributed over a replacement-level fill-in. Player grades (10+ minutes) combine the game's box-score impact, that impact against his expectation, his plus-minus relative to his teammates, and how his positional counterparts did against theirs; a huge box score is at least an A−. Offense grades use purely offensive box stats; defense grades use defensive boards, steals, blocks, fouls and plus-minus, and how his positional counterparts scored against their expectations.</p>
     <h3>Player styles</h3>
     <p>How each player scores and defends since 2019-20, from nba.com tracking gathered by our nba_api scripts (shot defense by distance, hustle, defensive speed and miles, dunks and at-rim attempts). Each stat is scaled 0–100 against his position group that season (turnovers and fouls inverted; three-point % only for real shooters; the shot-contest numbers first on a z-scale over all players). Career is the mean of his seasons. The career and this-season style labels and the defender types follow our PLAYERDEFENSEDROPDOWN sheet's thresholds and color codes. The same block, with a trend per stat, sits on every player and prospect page.</p>
+    <h3>Salary</h3>
+    <p>Each 2026-27 contract as a share of the cap against what the player is worth: the minimum plus his projected VORP (impact over his last three seasons, recent ones weighted more, times projected minutes cut for injuries) at the league's going rate, what veterans are paid above the minimum per VORP. Value grades this season (great, good, right-sized, bad, very bad); the contract tag grades every season it will likely run, aging his impact, with team options declined when he isn't worth them and player options picked up when he's overpaid. A toxic contract is overpaid now and by 15+ cap points over 2+ remaining seasons.</p>
     <h3>Roster brittleness (non-top-heavy value set)</h3>
     <p>Stars get hurt, so each GM page also asks whether the rest of the roster can carry the load. Every completed season, each player with 15+ games and 10+ minutes a game for the team gets the same ten stats as individual rates (individual offensive and defensive rating, true shooting, rebound, assist, steal, block and turnover rates, free-throw rate, 3-point rate), compared with his position group (guards, wings, bigs) league-wide that season (z-score, + is better). In each category the team's <b>top two players are left out</b> and the rest averaged, then ranked among the 30 teams that season. The mean of the ten is the <b>depth score</b>; averaged over the tenure and ranked among GMs it gives the <b>depth rank</b> (1 = least brittle) and depth strengths and weaknesses. Click a season on a GM page to see its players. The Outlook team pages show the same test, plus a projected roster profile, for this season's projected rotation (each player's last three seasons weighted by his projected minutes, ranked against the other projected rosters).</p>
 
@@ -114,7 +117,7 @@
   </div>
 </template>
 
-<footer class="foot small muted">NBA GM Rank <span id="app-version" data-version="0.1.18"></span> · data from Basketball-Reference and DunksAndThrees · <a href="#method">method</a></footer>
+<footer class="foot small muted">NBA GM Rank <span id="app-version" data-version="0.1.19"></span> · data from Basketball-Reference and DunksAndThrees · <a href="#method">method</a></footer>
 
 <script src="app.js"></script>
 </body>

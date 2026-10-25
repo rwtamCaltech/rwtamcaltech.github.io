@@ -772,13 +772,59 @@ const ordinal = n => n + ((n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({1: 'st', 2
 
 const ageNow = (draftAge, year) => draftAge == null ? null : draftAge + (Date.now() - new Date(year, 5, 25)) / (365.25 * 864e5);   // draft night ~ June 25
 let BIRTHS = {};
-let BODIES = {};
-const BIRTHS_P = Promise.all([getJSON('data/births.json').then(b => { BIRTHS = b; }).catch(() => {}), getJSON('data/bodies.json').then(b => { BODIES = b; }).catch(() => {})]);
+let BODIES = {}, SAL = null, SALBY = {};
+const BIRTHS_P = Promise.all([getJSON('data/births.json').then(b => { BIRTHS = b; }).catch(() => {}), getJSON('data/bodies.json').then(b => { BODIES = b; }).catch(() => {}),
+  getJSON('data/salary.json').then(b => { SAL = b; b.players.forEach(r => { SALBY[r.pid] = r; }); }).catch(() => {})]);
+const SAL_CLS = { 'Great value': 'VERY_GOOD', 'Good value': 'GOOD', 'Right-sized': 'OK', 'Bad value': 'BAD', 'Very bad value': 'VERY_BAD',
+  Bargain: 'VERY_GOOD', 'Team-friendly': 'GOOD', 'Fair deal': 'OK', Overpaid: 'BAD', 'Toxic contract': 'VERY_BAD' };
+const salPill = l => l ? `<span class="pill ${SAL_CLS[l] || 'OK'}">${esc(l)}</span>` : '';
+const optTxt = o => ({ PO: 'player option', TO: 'team option', ETO: 'early termination option' })[o] || '';
+const salaryLine = pid => { const r = pid && SALBY[pid]; if (!r) return '';
+  if (!r.contract) return `<p class="age-line">${r.tw ? 'Two-way contract' : 'No standard contract on file'}</p>`;
+  const c = r.contract, opts = c.options.map(o => `${seasonLabel(o.season)} ${optTxt(o.option)}${o.decision ? ` (${o.decision})` : ''}`);
+  return `<p class="age-line">${money(c.salary)} this season (${c.share}% of the cap) · ${c.years_left} year${c.years_left === 1 ? '' : 's'} left, ${money(c.total_money)} total${opts.length ? ` · ${esc(opts.join(', '))}` : ''} · ${salPill(c.label)} ${c.tag !== 'Fair deal' ? salPill(c.tag) : ''}</p>`; };
+function salaryBlock(pid) {
+  const r = pid && SALBY[pid];
+  if (!r) return '';
+  if (!r.contract) return `<h3>Salary</h3><p class="muted">${r.tw ? 'On a two-way contract (not counted against the cap).' : `No standard contract on file for ${seasonLabel(SAL.season)}.`}</p>`;
+  const c = r.contract;
+  const verdict = c.diff >= 4 ? `worth about ${c.fair}% of the cap, ${c.diff} points more than he is paid` : c.diff <= -4 ? `worth about ${c.fair}% of the cap, ${-c.diff} points less than he is paid` : `paid about what he is worth (${c.fair}% of the cap)`;
+  return `<h3>Salary</h3>
+    <div class="stat-tiles"><div class="tile"><div class="k">${seasonLabel(SAL.season)} salary</div><div class="v">${money(c.salary)}</div><div class="small muted">${c.share}% of the ${money(SAL.cap)} cap</div></div>
+      <div class="tile"><div class="k">This season</div><div class="v">${salPill(c.label)}</div><div class="small muted">${verdict}</div></div>
+      <div class="tile"><div class="k">Whole contract</div><div class="v">${salPill(c.tag)}</div><div class="small muted">${c.total_diff >= 0 ? '+' : ''}${c.total_diff} cap points over the ${c.expected_years} season${c.expected_years === 1 ? '' : 's'} it likely runs · ${money(c.total_money)} on the books</div></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Season</th><th class="num">Salary</th><th class="num">% of cap</th><th class="num">Worth (% of cap)</th><th class="num">Value</th><th>Option</th><th class="num hide-sm">Projected impact</th></tr></thead><tbody>
+      ${c.years.map(y => `<tr${y.counts ? '' : ' class="muted"'}><td>${seasonLabel(y.season)}</td><td class="num">${money(y.salary)}</td><td class="num">${y.share}%</td><td class="num">${y.fair}%</td>
+        <td class="num ${y.diff >= 4 ? 'd-col-green' : y.diff <= -4 ? 'd-col-red' : ''}">${y.diff > 0 ? '+' : ''}${y.diff}</td><td>${y.option ? `${optTxt(y.option)}${y.decision ? ` · <i>${esc(y.decision)}</i>` : ''}` : (y.counts ? '' : 'after the contract likely ends')}</td><td class="num hide-sm">${sgn(y.bpm, 1)}</td></tr>`).join('')}</tbody></table></div>
+    <p class="small muted">Worth = the minimum plus his projected VORP ((impact + 2) × projected minutes ÷ 3,936; impact is his Outlook BPM/EPM blend over his last three seasons, recent ones weighted more, and minutes are cut for injuries) at the league's going rate: ${SAL.rate}% of the cap per VORP, what veterans are paid above the minimum. Later seasons age his impact and assume the cap grows ${Math.round((SAL.cap_growth - 1) * 100)}% a year. Team options are picked up only if he's worth it; player options are taken only if he's overpaid. Value labels: great value 10+ cap points under his worth, good 4–10, right-sized within 4, bad 4–10 over, very bad 10+ over. <a href="#salary">All salaries →</a></p>`;
+}
+function renderSalary() {
+  const view = $('#view');
+  if (!SAL) { view.innerHTML = '<p class="empty">No salary data yet.</p>'; return; }
+  const f = state.sal = Object.assign({ label: '', team: '' }, state.sal || {});
+  const teams = [...new Set(SAL.players.map(r => r.team))].sort();
+  const draw = () => {
+    const rows = SAL.players.filter(r => r.contract && (!f.team || r.team === f.team) && (!f.label || r.contract.label === f.label || r.contract.tag === f.label));
+    $('#sal-body').innerHTML = rows.map((r, i) => { const c = r.contract; return `<tr class="link" data-href="#splayer/${r.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${r.pid}">${esc(r.name)}</a></td><td>${r.team}</td><td class="num">${r.age ?? '–'}</td>
+      <td class="num">${money(c.salary)}</td><td class="num strong">${c.share}%</td><td class="num">${c.fair}%</td><td class="num ${c.diff >= 4 ? 'd-col-green' : c.diff <= -4 ? 'd-col-red' : ''}">${c.diff > 0 ? '+' : ''}${c.diff}</td>
+      <td>${salPill(c.label)}</td><td>${salPill(c.tag)}</td><td class="num hide-sm">${c.years_left}${c.expected_years !== c.years_left ? ` <span class="muted small">(likely ${c.expected_years})</span>` : ''}</td><td class="small hide-sm">${c.options.map(o => `${seasonLabel(o.season)} ${o.option}${o.decision ? ': ' + esc(o.decision) : ''}`).join('<br>')}</td></tr>`; }).join('') || '<tr><td colspan="12" class="empty">No players match.</td></tr>';
+    $('#sal-count').textContent = `${rows.length} players`;
+    bindRowLinks(view);
+  };
+  view.innerHTML = `<h2>Salary</h2>
+    <p class="muted">Every ${seasonLabel(SAL.season)} contract as a share of the ${money(SAL.cap)} cap, against what the player is worth from our Outlook projection (impact over his last three seasons, recent ones weighted more, and minutes cut for injuries), at the league's going rate of ${SAL.rate}% of the cap per VORP. <b>Value</b> grades this season; <b>contract</b> grades every season it will likely run, aging his impact, with team options declined when he isn't worth them and player options picked up when he's overpaid. A <b>toxic contract</b> is overpaid now and by 15+ cap points over 2+ remaining seasons.</p>
+    <div class="toolbar"><select id="sal-label" aria-label="Label"><option value="">All labels</option><optgroup label="This season">${SAL.labels.map(l => `<option ${f.label === l ? 'selected' : ''}>${l}</option>`).join('')}</optgroup><optgroup label="Whole contract">${SAL.tags.map(l => `<option ${f.label === l ? 'selected' : ''}>${l}</option>`).join('')}</optgroup></select>
+      <select id="sal-team" aria-label="Team"><option value="">All teams</option>${teams.map(t => `<option ${f.team === t ? 'selected' : ''}>${t}</option>`).join('')}</select> <span id="sal-count" class="muted small"></span></div>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Age</th><th class="num">Salary</th><th class="num">% of cap</th><th class="num" title="What his projected play is worth, as a share of the cap">Worth</th><th class="num" title="Worth minus paid, cap points">+/−</th><th>Value</th><th>Contract</th><th class="num hide-sm">Years</th><th class="hide-sm">Options</th></tr></thead><tbody id="sal-body"></tbody></table></div>`;
+  $('#sal-label').addEventListener('change', e => { f.label = e.target.value; save(); draw(); });
+  $('#sal-team').addEventListener('change', e => { f.team = e.target.value; save(); draw(); });
+  draw();
+}
 const bodyLine = pid => { const b = pid && BODIES[pid]; if (!b) return ''; const [h, w, g, d, t] = b;
   return `<p class="age-line">${htFmt(h)}, ${w} lb · <span title="Build from weight vs what is typical for a ${g.toLowerCase()} his height on our draft boards (not body fat)">${t}</span> <span class="muted small">(${d === 0 ? 'typical' : `${Math.abs(d)} lb ${d > 0 ? 'heavier' : 'lighter'} than typical`} for a ${g.toLowerCase()} his height)</span></p>`; };
 const ageFromBirth = pid => { const b = pid && BIRTHS[pid]; if (!b) return null; const d = new Date(b + 'T12:00:00'), n = new Date(); return n.getFullYear() - d.getFullYear() - (n < new Date(n.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0); };
 const ageLine0 = (draftAge, year, fallback, pid) => { const ex = ageFromBirth(pid); if (ex != null) return `<p class="age-line">Age ${ex}${draftAge != null ? ` <span class="muted small">(${dnum(draftAge, 1)} at the ${year} draft)</span>` : ''}</p>`; const a = ageNow(draftAge, year); return a != null ? `<p class="age-line">Age ${Math.floor(a)} <span class="muted small">(${dnum(draftAge, 1)} at the ${year} draft)</span></p>` : fallback != null ? `<p class="age-line">Age ${fallback}</p>` : ''; };
-const ageLine = (draftAge, year, fallback, pid) => ageLine0(draftAge, year, fallback, pid) + bodyLine(pid);
+const ageLine = (draftAge, year, fallback, pid) => ageLine0(draftAge, year, fallback, pid) + bodyLine(pid) + salaryLine(pid);
 async function draftAge(pid) {
   try { const pr = (await getJSON('data/drafts/profiles.json'))[pid]; if (!pr) return null; const row = (await draftYear(pr.year)).rows.find(q => q.pid === pid); return row && row.Age != null ? { age: row.Age, year: pr.year } : null; } catch (e) { return null; }
 }
@@ -790,21 +836,30 @@ async function renderSeasonPlayer(pid) {
     const P = await getJSON('data/projection.json');
     for (const t of P.teams) { const q = t.players.find(x => x.pid === pid); if (q) { proj = { ...q, team: t.team, team_name: t.team_name, season: P.season }; break; } }
   } catch (e) { proj = null; }
-  if (!p && !proj) { view.innerHTML = '<p class="empty">Player not found.</p>'; return; }
-  const projTile = proj ? `<div class="tile"><div class="k">Outlook projection</div><div class="v">${proj.mpg} min/g</div><div class="small muted">${proj.g} games · impact ${sgn(proj.bpm, 1)} · contribution ${sgn(proj.contrib)}</div></div>` : '';
+  if (!p && !proj) {   // not on a 2026-27 roster: build the header from his tracking data
+    const got = await styleByPid(pid);
+    if (!got) { view.innerHTML = '<p class="empty">Player not found.</p>'; return; }
+    const sp = got.p, ls = sp.seasons[sp.labels.season_year];
+    proj = { name: sp.name, team: null, pos: sp.pos, none: true, last_team: ls.team, last_season: sp.labels.season_year };
+  }
+  const projTile = proj && !proj.none ? `<div class="tile"><div class="k">Outlook projection</div><div class="v">${proj.mpg} min/g</div><div class="small muted">${proj.g} games · impact ${sgn(proj.bpm, 1)} · contribution ${sgn(proj.contrib)}</div></div>` : '';
   let prof = null, I = null;
   let PD = null;
   try {
     prof = (await getJSON('data/drafts/profiles.json'))[pid]; I = await getJSON('data/drafts/index.json');
     if (prof) { PD = await draftYear(prof.year); prof = { ...prof, ...(PD.rows.find(q => q.pid === pid) || {}) }; }
   } catch (e) { prof = null; }
-  if (!p) {   // on a roster but no 2026-27 games yet: projection, style and draft sections only
-    view.innerHTML = `<a class="back" href="#outlook/${proj.team}">← ${esc(proj.team_name)} outlook</a>
-      <div class="hero"><div class="who"><h2>${esc(proj.name)}</h2>${ageLine(prof && prof.Age, prof && prof.year, proj.age, pid)}<p><span class="team-tag">${proj.team}</span><a href="#outlook/${proj.team}">${esc(proj.team_name)}</a> · ${esc(proj.pos || '')}${proj.age ? ` · age ${proj.age}` : ''} · no ${seasonLabel(proj.season)} games yet · <a href="https://www.basketball-reference.com/players/${pid[0]}/${pid}.html">Basketball-Reference</a></p></div>
+  if (!p) {   // no 2026-27 games yet (or not on a roster): projection, style, draft and salary sections
+    const where = proj.none ? `${esc(proj.last_team || '')} <span class="muted">(last tracked ${seasonLabel(proj.last_season)}; not on a ${seasonLabel(S._season ? S._season.season : 2027)} roster)</span>`
+      : `<span class="team-tag">${proj.team}</span><a href="#outlook/${proj.team}">${esc(proj.team_name)}</a>`;
+    view.innerHTML = `${proj.none ? '<a class="back" href="#styles">← Player styles</a>' : `<a class="back" href="#outlook/${proj.team}">← ${esc(proj.team_name)} outlook</a>`}
+      <div class="hero"><div class="who"><h2>${esc(proj.name)}</h2>${ageLine(prof && prof.Age, prof && prof.year, proj.age, pid)}<p>${where} · ${esc(proj.pos || '')}${proj.none ? '' : ` · no ${seasonLabel(proj.season)} games yet`} · <a href="https://www.basketball-reference.com/players/${pid[0]}/${pid}.html">Basketball-Reference</a></p></div>
         <div class="stat-tiles">${projTile}</div></div>
       <div id="sty-slot"></div>
-      ${prof ? draftProfileBlock(prof, prof.year, I, PD) : ''}`;
+      ${prof ? draftProfileBlock(prof, prof.year, I, PD) : ''}
+      ${salaryBlock(pid)}`;
     styleSlot(view, pid);
+    bindRowLinks(view);
     return;
   }
   view.innerHTML = `<a class="back" href="#season/${p.team}">← ${esc(p.team)}</a>${proj ? ` <a class="back" href="#outlook/${proj.team}">· ${esc(proj.team)} outlook</a>` : ''}
@@ -816,7 +871,8 @@ async function renderSeasonPlayer(pid) {
       ${[...p.log].reverse().map(x => `<tr class="link" data-href="#game/${x.id}"><td class="nowrap">${fmtDate(x.date)}</td><td class="nowrap"><a href="#game/${x.id}">${x.home ? 'vs' : '@'} ${x.opp}</a> <span class="muted small">${x.result} ${sgn(x.margin, 0)}</span></td>
         <td class="num">${(x.mp || 0).toFixed(0)}</td><td class="num">${x.pts ?? '–'}</td><td class="num">${x.trb ?? '–'}</td><td class="num">${x.ast ?? '–'}</td><td class="num">${sgn(x.pm, 0)}</td><td class="num">${x.bpm == null ? '–' : sgn(x.bpm, 1)}</td><td class="num">${sgn(x.exp, 1)}</td><td>${gradePill(x.grade)}</td><td>${gradePill(x.off_grade)}</td><td>${gradePill(x.def_grade)}</td></tr>`).join('')}</tbody></table></div>
     <div id="sty-slot"></div>
-    ${prof ? draftProfileBlock(prof, prof.year, I, PD) : ''}`;
+    ${prof ? draftProfileBlock(prof, prof.year, I, PD) : ''}
+    ${salaryBlock(pid)}`;
   bindRowLinks(view);
   styleSlot(view, pid);
 }
@@ -1242,7 +1298,7 @@ function bindStyTips(view) {
 async function styleSlot(view, pid) {   // the style block on player / prospect pages, before the draft section
   const got = await styleByPid(pid), slot = $('#sty-slot', view);
   if (!got || !slot) return;
-  slot.innerHTML = styleBlock(got.p, got.X) + `<p class="small"><a href="#styles/${got.p.id}">Open in Player styles →</a></p>`;
+  slot.innerHTML = styleBlock(got.p, got.X) + `<p class="small"><a href="#styles">All player styles →</a></p>`;
   bindStyTips(slot);
 }
 async function renderStyles(id) {
@@ -1250,6 +1306,7 @@ async function renderStyles(id) {
   const X = await styIndex();
   if (id) {
     const p = await getJSON(`data/styles/players/${id}.json`);
+    if (p.pid) { location.replace(`#splayer/${p.pid}`); return; }   // the full player page carries the style block
     let season = null;
     if (p.pid) { try { season = await getJSON(`data/season/players/${p.pid}.json`); } catch (e) { season = null; } }
     const last = p.seasons[p.labels.season_year];
@@ -1271,8 +1328,8 @@ async function renderStyles(id) {
   const draw = () => {
     const q = f.q.toLowerCase();
     const rows = X.players.filter(p => (f.mode === 'all' || teamOf(p)) && (f.mode !== 'last' || p.id != null) && (!q || p.name.toLowerCase().includes(q)) && (!f.team || teamOf(p) === f.team) && (!f.pos || (p.pos || '').includes(f.pos)));
-    $('#sty-body').innerHTML = rows.slice(0, 600).map(p => p.id == null ? `<tr><td class="name-cell">${esc(p.name)}</td><td>${esc(p.cur || '')}</td><td>${esc(p.pos || '')}</td><td class="num">0</td><td colspan="4" class="small muted">${p.rookie ? 'Rookie: ' : ''}no NBA tracking yet${p.rookie ? '' : ' (under the scripts\' minutes cutoff)'}</td></tr>`
-      : `<tr class="link" data-href="#styles/${p.id}"><td class="name-cell"><a href="#styles/${p.id}">${esc(p.name)}</a></td><td>${teamOf(p) ? esc(teamOf(p)) : `<span class="muted">${esc(p.team || '')} ${seasonLabel(p.last)}</span>`}${f.mode === 'last' && p.cur && p.cur !== p.team ? ` <span class="muted small">→ ${esc(p.cur)}</span>` : ''}</td><td>${esc(p.pos || '')}</td><td class="num">${p.n}</td>
+    $('#sty-body').innerHTML = rows.slice(0, 600).map(p => p.id == null ? `<tr class="link" data-href="#splayer/${p.pid}"><td class="name-cell"><a href="#splayer/${p.pid}">${esc(p.name)}</a></td><td>${esc(p.cur || '')}</td><td>${esc(p.pos || '')}</td><td class="num">0</td><td colspan="4" class="small muted">${p.rookie ? 'Rookie: ' : ''}no NBA tracking yet${p.rookie ? '' : ' (under the scripts\' minutes cutoff)'}</td></tr>`
+      : `<tr class="link" data-href="${p.pid ? `#splayer/${p.pid}` : `#styles/${p.id}`}"><td class="name-cell"><a href="${p.pid ? `#splayer/${p.pid}` : `#styles/${p.id}`}">${esc(p.name)}</a></td><td>${teamOf(p) ? esc(teamOf(p)) : `<span class="muted">${esc(p.team || '')} ${seasonLabel(p.last)}</span>`}${f.mode === 'last' && p.cur && p.cur !== p.team ? ` <span class="muted small">→ ${esc(p.cur)}</span>` : ''}</td><td>${esc(p.pos || '')}</td><td class="num">${p.n}</td>
       <td>${styGrade(p.og)}</td><td>${styGrade(p.dg)}</td><td class="small hide-sm">${styOrder(p.off).map(l => `<span class="d-tag ${styTone(l) === 'mid' ? '' : styTone(l)}">${esc(l)}</span>`).join('')}</td>
       <td class="small hide-sm">${styOrder(p.def).map(l => `<span class="d-tag ${styTone(l) === 'mid' ? '' : styTone(l)}">${esc(l)}</span>`).join('')} ${p.types.map(k => `<span class="sty-type sty-${k}">${STY_TYPES[k]}</span>`).join(' ')}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No players match.</td></tr>';
     $('#sty-count').textContent = `${rows.length} players`;
@@ -1302,7 +1359,7 @@ async function route() {
   view.hidden = false;
   view.classList.remove('hide-initial');
   try {
-    if (page === 'splayer' || page === 'prospect' || page === 'styles') await BIRTHS_P;
+    if (page === 'splayer' || page === 'prospect' || page === 'styles' || page === 'salary') await BIRTHS_P;
     if (page === 'gm' && arg) await renderGM(arg);
     else if (page === 'former' && arg) await renderGM(arg, true);
     else if (page === 'coaches') renderCoaches();
@@ -1313,6 +1370,7 @@ async function route() {
     else if (page === 'game') await renderGame(arg);
     else if (page === 'splayer') await renderSeasonPlayer(arg);
     else if (page === 'styles') await renderStyles(arg);
+    else if (page === 'salary') renderSalary();
     else if (page === 'drafts') await renderDrafts(arg, h.split('/')[2]);
     else if (page === 'prospect') await renderProspect(arg, h.split('/')[2]);
     else if (page === 'coach' && arg) await renderCoach(arg, false);
