@@ -275,3 +275,6 @@ span.sv-elite, span.sv-good, span.sv-mid, span.sv-poor, span.sv-zero, b.sv-elite
 .sty-comp ol { margin: 4px 0 8px; padding-left: 22px; }
 .sty-comp li { margin: 2px 0; }
 .pill.CHIP { background: #1f5f99; color: #fff; }
+.pager { display: flex; gap: 10px; align-items: center; justify-content: center; margin: 10px 0; }
+.pager button { font: inherit; padding: 4px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
+.pager button:disabled { opacity: .4; cursor: default; }

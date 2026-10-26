@@ -772,9 +772,15 @@ const ordinal = n => n + ((n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({1: 'st', 2
 
 const ageNow = (draftAge, year) => draftAge == null ? null : draftAge + (Date.now() - new Date(year, 5, 25)) / (365.25 * 864e5);   // draft night ~ June 25
 let BIRTHS = {};
-let BODIES = {}, SAL = null, SALBY = {};
+let BODIES = {}, SAL = null, SALBY = {}, NATBY = {};
 const BIRTHS_P = Promise.all([getJSON('data/births.json').then(b => { BIRTHS = b; }).catch(() => {}), getJSON('data/bodies.json').then(b => { BODIES = b; }).catch(() => {}),
-  getJSON('data/salary.json').then(b => { SAL = b; b.players.forEach(r => { SALBY[r.pid] = r; }); }).catch(() => {})]);
+  getJSON('data/salary.json').then(b => { SAL = b; b.players.forEach(r => { SALBY[r.pid] = r; }); }).catch(() => {}),
+  getJSON('data/nations.json').then(b => { const k = {}; b.players.forEach(x => { k[x.country] = (k[x.country] || 0) + 1; NATBY[x.pid] = Object.assign({ of: k[x.country] }, x); });
+    b.players.forEach(x => { NATBY[x.pid].n = k[x.country]; }); }).catch(() => {})]);
+const bornLine = pid => { const x = pid && NATBY[pid]; if (!x || !x.born) return '';
+  const city = x.born.split(',').slice(0, -1).join(',').trim() || x.born;
+  return `<p class="age-line">Born in ${esc(city)} · Country of origin: <a href="#nations/${encodeURIComponent(x.country)}">${esc(x.country)}</a> <span class="muted small">(${ordinal(x.of)} of ${x.n} from ${esc(x.country)} by projected value)</span>${collegeTxt(x.college)}</p>`; };
+const collegeTxt = c => !c ? '' : c.kind === 'college' ? ` · College: ${esc(c.name)}` : ` · College: none (${c.kind === 'intl' ? 'international' : 'non-college'}${c.name ? `, ${esc(c.name)}` : ''})`;
 const SAL_CLS = { 'Great value': 'VERY_GOOD', 'Good value': 'GOOD', 'Right-sized': 'OK', 'Bad value': 'BAD', 'Very bad value': 'VERY_BAD',
   Bargain: 'VERY_GOOD', 'Team-friendly': 'GOOD', 'Fair deal': 'OK', Overpaid: 'BAD', 'Toxic contract': 'VERY_BAD' };
 const salPill = l => l ? `<span class="pill ${SAL_CLS[l] || 'OK'}">${esc(l)}</span>` : '';
@@ -809,11 +815,11 @@ function injuryBlock(pid) {
   const cur = a.current;
   return `<h3>Injuries</h3>
     ${cur ? `<p><b>Current:</b> ${esc(cur.injury)}${cur.est_return ? ` · ${cur.est_return === 'season' ? 'out for the season' : `estimated return ${fmtDate(cur.est_return)}`}` : ''}${cur.note ? ` <span class="muted">(${esc(cur.note)})</span>` : ''}</p>` : ''}
-    ${a.seasons.length ? `<div class="stat-tiles"><div class="tile"><div class="k">Last ${a.seasons.length} season${a.seasons.length === 1 ? '' : 's'}</div><div class="v">${a.pct}% missed</div><div class="small muted">${a.missed} of ${a.available} games ${injPill(a.label)}</div></div></div>
-    <div class="table-wrap"><table><thead><tr><th>Season</th><th class="num">Games played</th><th class="num">Missed</th><th class="num">% missed</th></tr></thead><tbody>
-      ${a.seasons.map(x => `<tr><td>${seasonLabel(x.season)}</td><td class="num">${x.g} of ${x.of}</td><td class="num">${x.of - x.g}</td><td class="num ${x.g / x.of <= 0.7 ? 'd-col-red' : ''}">${Math.round(100 * (x.of - x.g) / x.of)}%</td></tr>`).join('')}</tbody></table></div>`
+    ${a.seasons.length ? `<div class="stat-tiles"><div class="tile"><div class="k">${(n => `${n} counted season${n === 1 ? '' : 's'}`)(a.seasons.filter(x => x.counts !== false).length)}</div><div class="v">${a.pct == null ? '–' : `${a.pct}% missed`}</div><div class="small muted">${a.missed} of ${a.available} games ${injPill(a.label)}</div></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Season</th><th class="num">Games played</th><th class="num">Missed</th><th class="num">% missed</th><th class="num hide-sm">Min/g</th></tr></thead><tbody>
+      ${a.seasons.map(x => { const off = x.counts === false; return `<tr${off ? ' class="muted"' : ''}><td>${seasonLabel(x.season)}${off ? ` <span class="small">(not counted: under ${SAL.injury.rotation_mpg} min a game, so DNPs may be coach's decisions)</span>` : ''}</td><td class="num">${x.g} of ${x.of}</td><td class="num">${x.of - x.g}</td><td class="num ${!off && x.g / x.of <= 0.7 ? 'd-col-red' : ''}">${Math.round(100 * (x.of - x.g) / x.of)}%</td><td class="num hide-sm">${x.mpg ?? '–'}</td></tr>`; }).join('')}</tbody></table></div>`
       : '<p class="muted">No full NBA season yet to judge availability.</p>'}
-    <p class="small muted">Games missed out of 82 in each of the last three seasons, counted from his first 40-game season (a season missed entirely counts). Injury prone = ${SAL.injury.prone}%+ missed over 2+ seasons, missed time = ${SAL.injury.some}%+, durable = ${SAL.injury.durable}% or less (rotation players, 20+ min a game). Missed games also include rest, suspensions and coach's decisions: our sources (Basketball-Reference game logs say only "Inactive") don't record the injury behind each one, so only current long-term injuries (from team reports and ESPN's tracker) are named.</p>`;
+    <p class="small muted">Games missed out of 82 in each of the last three seasons, counted from his first 40-game season (a season missed entirely counts; one where he averaged under ${SAL.injury.rotation_mpg} min a game doesn't, since a bench player's DNPs may be coach's decisions). Injury prone = ${SAL.injury.prone}%+ missed over 2+ seasons, missed time = ${SAL.injury.some}%+, durable = ${SAL.injury.durable}% or less (rotation players, 20+ min a game). Missed games also include rest, suspensions and coach's decisions: our sources (Basketball-Reference game logs say only "Inactive") don't record the injury behind each one, so only current long-term injuries (from team reports and ESPN's tracker) are named.</p>`;
 }
 function renderSalary() {
   const view = $('#view');
@@ -840,11 +846,11 @@ function renderSalary() {
   $('#sal-team').addEventListener('change', e => { f.team = e.target.value; save(); draw(); });
   draw();
 }
-const bodyLine = pid => { const b = pid && BODIES[pid]; if (!b) return ''; const [h, w, g, d, t] = b;
-  return `<p class="age-line">${htFmt(h)}, ${w} lb · <span title="Build from weight vs what is typical for a ${g.toLowerCase()} his height on our draft boards (not body fat)">${t}</span> <span class="muted small">(${d === 0 ? 'typical' : `${Math.abs(d)} lb ${d > 0 ? 'heavier' : 'lighter'} than typical`} for a ${g.toLowerCase()} his height)</span></p>`; };
+const bodyLine = pid => { const b = pid && BODIES[pid]; if (!b) return ''; const [h, w, g, d, t, src] = b;
+  return `<p class="age-line">${htFmt(h)}, ${w} lb · <span title="Build from weight vs what is typical for a ${g.toLowerCase()} his height on our draft boards (not body fat)">${t}</span> <span class="muted small">(${d === 0 ? 'typical' : `${Math.abs(d)} lb ${d > 0 ? 'heavier' : 'lighter'} than typical`} for a ${g.toLowerCase()} his height${src === 'bbref' ? '; listed by Basketball-Reference' : ''})</span></p>`; };
 const ageFromBirth = pid => { const b = pid && BIRTHS[pid]; if (!b) return null; const d = new Date(b + 'T12:00:00'), n = new Date(); return n.getFullYear() - d.getFullYear() - (n < new Date(n.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0); };
 const ageLine0 = (draftAge, year, fallback, pid) => { const ex = ageFromBirth(pid); if (ex != null) return `<p class="age-line">Age ${ex}${draftAge != null ? ` <span class="muted small">(${dnum(draftAge, 1)} at the ${year} draft)</span>` : ''}</p>`; const a = ageNow(draftAge, year); return a != null ? `<p class="age-line">Age ${Math.floor(a)} <span class="muted small">(${dnum(draftAge, 1)} at the ${year} draft)</span></p>` : fallback != null ? `<p class="age-line">Age ${fallback}</p>` : ''; };
-const ageLine = (draftAge, year, fallback, pid) => ageLine0(draftAge, year, fallback, pid) + bodyLine(pid) + salaryLine(pid);
+const ageLine = (draftAge, year, fallback, pid) => ageLine0(draftAge, year, fallback, pid) + bodyLine(pid) + salaryLine(pid) + bornLine(pid);
 async function draftAge(pid) {
   try { const pr = (await getJSON('data/drafts/profiles.json'))[pid]; if (!pr) return null; const row = (await draftYear(pr.year)).rows.find(q => q.pid === pid); return row && row.Age != null ? { age: row.Age, year: pr.year } : null; } catch (e) { return null; }
 }
@@ -914,6 +920,54 @@ const dnum = (v, d = 2) => v == null ? '–' : Number(v).toFixed(d);
 const htFmt = h => h ? `${Math.floor(h / 12)}'${(h % 12).toFixed(h % 1 ? 1 : 0)}"` : '–';
 let draftCache = {};
 async function draftYear(y) { return draftCache[y] || (draftCache[y] = await getJSON(`data/drafts/${y}.json`)); }
+/* the rules applied after the model (gmrank/drafts.py SCOUT/USER/MINED/FIT_RULES), 20 at a time, with the prospects each hit */
+function bindDraftRules(view) {
+  const box = view.querySelector('#draft-rules'), out = view.querySelector('#draft-rules-box');
+  if (!box) return;
+  const f = state.rules = Object.assign({ src: '', dir: '', q: '', sort: 'n', page: 0 }, state.rules || {});
+  let R = null;
+  const ex = h => `<a href="#prospect/${h.y}/${h.i}">${esc(h.name)}</a> <span class="muted small">${h.y}${h.cr ? ` · #${h.cr}` : ''}${h.rr ? ` → ${h.rr}` : ''}</span>`;
+  const draw = () => {
+    const q = f.q.toLowerCase();
+    const sorts = { n: (a, b) => b.n - a.n, up: (a, b) => b.points - a.points, down: (a, b) => a.points - b.points,
+      gap: (a, b) => ((b.cr ?? 0) - (b.rr ?? 0)) - ((a.cr ?? 0) - (a.rr ?? 0)) };
+    const rs = R.rules.filter(r => (!f.src || r.kind === f.src) && (!f.dir || (f.dir === 'up' ? r.points > 0 : r.points < 0))
+      && (!q || (r.name + ' ' + r.criteria + ' ' + r.hits.map(h => h.name).join(' ')).toLowerCase().includes(q))).sort(sorts[f.sort]);
+    const pages = Math.max(1, Math.ceil(rs.length / 20));
+    f.page = Math.min(f.page, pages - 1);
+    const slice = rs.slice(f.page * 20, f.page * 20 + 20);
+    out.querySelector('#rules-body').innerHTML = `<div class="table-wrap"><table><thead><tr><th>#</th><th>Rule (archetype and test)</th><th class="num" title="Added to predicted VORP per season">Points</th><th class="hide-sm">Source</th><th class="num" title="Prospects on every board it fits, past and present">Hits</th><th class="num hide-sm" title="Hits in reranked classes: average class rank (with the rule) and average actual rerank">Class rank → rerank</th><th>${esc(String(R.latest))} prospects it fits</th><th class="hide-sm">Past examples (class rank → rerank; best careers for a boost, worst for a dock)</th></tr></thead><tbody>
+      ${slice.map((r, i) => { const now = r.hits.filter(h => String(h.y) === String(R.latest)), past = r.hits.filter(h => String(h.y) !== String(R.latest)).slice(0, 6);
+        return `<tr><td class="rank">${f.page * 20 + i + 1}</td><td><b>${esc(r.name)}</b>${r.criteria ? `<br><span class="muted small">${esc(r.criteria)}</span>` : ''}</td>
+        <td class="num ${r.points > 0 ? 'z-g' : 'z-b'}">${sgn(r.points, 2)}</td><td class="hide-sm small">${esc(r.source)}</td><td class="num strong">${r.n}</td>
+        <td class="num hide-sm">${r.cr != null ? `${r.cr} → ${r.rr} <span class="muted small">(${r.n_rr})</span>` : '–'}</td>
+        <td class="small">${now.length ? now.slice(0, 12).map(ex).join(', ') + (now.length > 12 ? ` <span class="muted">+${now.length - 12} more</span>` : '') : '<span class="muted">none</span>'}</td><td class="small hide-sm">${past.map(ex).join(', ') || '–'}</td></tr>`; }).join('')}
+      </tbody></table></div>
+      <div class="pager"><button type="button" id="rules-prev" ${f.page ? '' : 'disabled'} aria-label="Previous 20">←</button> <span class="small">${rs.length ? f.page * 20 + 1 : 0}–${Math.min(rs.length, f.page * 20 + 20)} of ${rs.length}</span> <button type="button" id="rules-next" ${f.page < pages - 1 ? '' : 'disabled'} aria-label="Next 20">→</button></div>`;
+    out.querySelector('#rules-prev').onclick = () => { f.page--; save(); draw(); };
+    out.querySelector('#rules-next').onclick = () => { f.page++; save(); draw(); };
+  };
+  const save = () => { try { localStorage.setItem('draftRules', box.checked ? '1' : '0'); } catch (e) {} };
+  const open = async v => {
+    box.checked = v; out.hidden = !v; save();
+    if (!v || R) return;
+    try { R = await getJSON('data/drafts/rules.json'); } catch (e) { out.innerHTML = '<p class="muted">Rules not built yet.</p>'; return; }
+    out.innerHTML = `<h3>Rules applied after the model <span class="muted small">· ${R.rules.length} rules</span></h3>
+      <p class="small">Judgment calls layered on the model's predicted VORP per season, for archetypes it misses: each adds or docks points for every prospect who fits, past and future, so a new class is scored by the same tests. <b>Hits</b> counts prospects on every board; <b>class rank → rerank</b> compares, for hits in classes already reranked, where we rank them (with the rule) and where they actually rerank so far. Examples show class rank → rerank.</p>
+      <div class="toolbar"><select id="rules-src"><option value="">All sources</option><option value="scout">Scout rules</option><option value="user">Your conditionals</option><option value="mined">Mined from model misses</option><option value="fit">Fit to reranks</option></select>
+        <select id="rules-dir"><option value="">Boosts and docks</option><option value="up">Boosts only</option><option value="down">Docks only</option></select>
+        <select id="rules-sort"><option value="n">Most hits</option><option value="up">Biggest boosts</option><option value="down">Biggest docks</option><option value="gap">Hits rerank better than ranked</option></select>
+        <input class="draft-filter" id="rules-q" placeholder="Search rules or players…"></div><div id="rules-body"></div>`;
+    [['#rules-src', 'src'], ['#rules-dir', 'dir'], ['#rules-sort', 'sort']].forEach(([id, k]) => { const el = out.querySelector(id); el.value = f[k]; el.onchange = () => { f[k] = el.value; f.page = 0; draw(); }; });
+    const qi = out.querySelector('#rules-q'); qi.value = f.q; qi.oninput = () => { f.q = qi.value; f.page = 0; draw(); };
+    draw();
+  };
+  let on = false;
+  try { on = localStorage.getItem('draftRules') === '1'; } catch (e) {}
+  box.addEventListener('change', () => open(box.checked));
+  open(on);
+}
+
 async function renderDrafts(year, sub) {
   const view = $('#view');
   const I = await getJSON('data/drafts/index.json');
@@ -966,9 +1020,10 @@ async function renderDrafts(year, sub) {
     <p class="lede">Draft boards from the realgm + barttorvik workflow (college stats from RealGM and Barttorvik play-by-play with strength of schedule; international players from RealGM), with skill grades, outcome probabilities, NBA comparisons and machine-learning projections. Each prospect is linked to his NBA career so far. ${modelNote}</p>
     ${draftNav(I, mode === 'one' ? year : mode)}
     <div class="toolbar">
-      <input class="draft-filter" id="draft-filter" placeholder="Filter by name, school, position…"> <span class="small muted">${R.length} prospects</span> <label class="small"><input type="checkbox" id="draft-cmp"> Show comparison columns (Rerank model, Hybrid, Value set)</label>${multi ? ' <span id="draft-pager" class="draft-pager"></span>' : ''}</div>
+      <input class="draft-filter" id="draft-filter" placeholder="Filter by name, school, position…"> <span class="small muted">${R.length} prospects</span> <label class="small"><input type="checkbox" id="draft-cmp"> Show comparison columns (Rerank model, Hybrid, Value set)</label> <label class="small"><input type="checkbox" id="draft-rules"> Show the rules applied after the model</label>${multi ? ' <span id="draft-pager" class="draft-pager"></span>' : ''}</div>
     ${legend}
     ${modelExplainer(M)}
+    <div id="draft-rules-box" hidden></div>
     <h3>${mode === 'all' ? 'All drafts' : mode === 'backtoschool' ? 'Back to school' : mode === 'noncollege' ? 'Non-college prospects, all drafts' : mode === 'other' ? 'Other: early entrants who withdrew' : `${year} board`}</h3>
     ${colHelp}
     ${mode === 'backtoschool' ? '<p class="small">Prospects listed on a board who went back to school instead (Thomas Haugh, Alex Condon, Alijah Arenas, Moustapha Thiam, Braylon Mullins in 2026). They are off that main board and its class ranks; the model\'s projection from that season is kept for reference.</p>' : ''}
@@ -996,6 +1051,7 @@ async function renderDrafts(year, sub) {
     <div class="table-wrap draft-wrap"><table class="draft-table" data-t="tags"><thead><tr>${idHead}<th>Tags</th></tr></thead><tbody>
       ${R.map((r, i) => `<tr data-q="${esc((r.name + ' ' + (r.Info || '') + ' ' + (r.Pos || '') + ' ' + r.tags.join(' ')).toLowerCase())}">${idCells(r, i)}<td>${tagPills(r.tag_pos, 'good')}${(r.tag_pos || []).length && (r.tag_neg || []).length ? ', ' : ''}${tagPills(r.tag_neg, 'bad')}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
   sortableTables(view, '.draft-table');
+  bindDraftRules(view);
   // the comparison columns (rerank model, hybrid, Value set) are hidden unless asked for: Class rank leads
   const board = view.querySelector('.draft-table[data-t="board"]'), cmpBox = view.querySelector('#draft-cmp');
   if (board) {
@@ -1187,6 +1243,7 @@ function draftProfileBlock(r, year, I, D) {
     </div>
     ${(r.tag_pos || []).length ? `<p><b>Archetype strengths:</b> ${tagPills(r.tag_pos, 'good')}</p>` : ''}
     ${(r.tag_neg || []).length ? `<p><b>Archetype weaknesses:</b> ${tagPills(r.tag_neg, 'bad')}</p>` : ''}
+    ${r.tags_inferred && (r.tags || []).length ? '<p class="small muted">Archetypes inferred from his skill grades, height, weight and position: the sheet tags only the newest boards, so these are the tags a model learned from them predicts well (held-out F1 and precision 0.8+).</p>' : ''}
     ${D ? skillRow(r, D, I) : ''}
     ${(r.model_comps || []).length ? `<p class="small"><b>Closest past prospects (our model):</b> ${r.model_comps.map(c => `${c.i != null ? `<a href="#prospect/${c.year}/${c.i}">${esc(c.name)}</a>` : esc(c.name)} <span class="muted">(${c.year}${c.pick ? ` #${c.pick}` : ', undrafted'}, ${Math.round(c.sim * 100)}% similar)</span> ${tierPill(c.tier)}${c.career_tier !== c.tier ? ` <span class="muted">→ ${esc(c.career_tier)}</span>` : ''}`).join(', ')}</p>
     <p class="small muted">The past prospects our model treats as most alike: the share of its decision trees that put the two in the same leaf, i.e. alike on the inputs that matter for NBA value (board grades, size, college stats, school). Earlier drafts only, with how they actually turned out (first four seasons → career).</p>` : ''}
@@ -1373,6 +1430,46 @@ async function renderStyles(id) {
   draw();
 }
 
+/* ---------- Nationalities (gmrank/nations.py) ---------- */
+async function renderNations(arg) {
+  const view = $('#view');
+  const N = await getJSON('data/nations.json');
+  const f = state.nat = Object.assign({ country: '', page: 0, sort: 'players' }, state.nat || {});
+  if (arg) Object.assign(f, { country: decodeURIComponent(arg), page: 0 });
+  const sorts = { vorp: (a, b) => b.vorp - a.vorp, per: (a, b) => b.per_player - a.per_player, high: (a, b) => b.high - a.high || b.vorp - a.vorp, players: (a, b) => b.players - a.players || b.vorp - a.vorp };
+  const known = N.countries.filter(c => c.country !== 'Unknown');
+  const draw = () => {
+    const cs = [...known].sort(sorts[f.sort]);
+    $('#nat-countries').innerHTML = cs.map((c, i) => `<tr class="link" data-country="${esc(c.country)}"><td class="rank">${i + 1}</td><td><a href="javascript:void 0">${esc(c.country)}</a></td><td class="num">${c.players}</td><td class="num strong">${c.high}</td>
+      <td class="num">${sgn(c.avg_impact, 2)}</td><td class="num">${c.per_player.toFixed(2)}</td><td class="num strong">${c.vorp.toFixed(1)}</td><td class="hide-sm"><a href="#splayer/${c.best.pid}">${esc(c.best.name)}</a> <span class="muted small">${sgn(c.best.impact, 1)}</span></td></tr>`).join('');
+    view.querySelectorAll('#nat-countries tr').forEach(tr => tr.addEventListener('click', e => { if (e.target.closest('a[href^="#"]')) return; f.country = tr.dataset.country; f.page = 0; save(); $('#nat-sel').value = f.country; drawPlayers(); $('#nat-players').scrollIntoView({ behavior: 'smooth' }); }));
+    view.querySelectorAll('[data-nsort]').forEach(th => th.classList.toggle('sorted', th.dataset.nsort === f.sort));
+  };
+  const drawPlayers = () => {
+    const ps = N.players.filter(x => !f.country || x.country === f.country), pages = Math.max(1, Math.ceil(ps.length / 20));
+    f.page = Math.min(f.page, pages - 1);
+    const slice = ps.slice(f.page * 20, f.page * 20 + 20);
+    $('#nat-players').innerHTML = `<h3>${f.country ? esc(f.country) : 'All countries'} <span class="muted small">· ${ps.length} player${ps.length === 1 ? '' : 's'}, best to worst</span></h3>
+      <div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Age</th><th class="num">Pos</th><th class="hide-sm">Born</th><th class="num" title="Outlook projected impact (BPM/EPM blend)">Impact</th><th class="num">Min/g</th><th class="num" title="Projected VORP: (impact + 2) x minutes / 3,936">Value</th></tr></thead><tbody>
+      ${slice.map((x, i) => `<tr class="link" data-href="#splayer/${x.pid}"><td class="rank">${f.page * 20 + i + 1}</td><td><a href="#splayer/${x.pid}">${esc(x.name)}</a>${x.high ? ' <span class="pill GOOD">HIGH IMPACT</span>' : ''}${x.rookie ? ' <span class="pill OK">ROOKIE</span>' : ''}</td><td>${x.team}</td><td class="num">${x.age ?? '–'}</td><td class="num">${esc(x.pos || '')}</td><td class="hide-sm small">${esc(x.born || 'unknown')}</td>
+        <td class="num ${zCls(x.impact / 1.5)}">${sgn(x.impact, 1)}</td><td class="num">${x.mpg ?? '–'}</td><td class="num strong">${x.vorp.toFixed(2)}</td></tr>`).join('')}</tbody></table></div>
+      ${pages > 1 ? `<div class="pager"><button type="button" id="nat-prev" ${f.page ? '' : 'disabled'} aria-label="Previous 20">←</button> <span class="small">${f.page * 20 + 1}–${Math.min(ps.length, f.page * 20 + 20)} of ${ps.length}</span> <button type="button" id="nat-next" ${f.page < pages - 1 ? '' : 'disabled'} aria-label="Next 20">→</button></div>` : ''}`;
+    bindRowLinks($('#nat-players'));
+    const pv = $('#nat-prev'), nx = $('#nat-next');
+    if (pv) pv.addEventListener('click', () => { f.page--; save(); drawPlayers(); });
+    if (nx) nx.addEventListener('click', () => { f.page++; save(); drawPlayers(); });
+  };
+  const unk = N.countries.find(c => c.country === 'Unknown');
+  view.innerHTML = `<h2>Nationalities</h2>
+    <p class="muted">Where every player on a ${seasonLabel(N.season)} roster was born (Basketball-Reference), and how good each country's players are by our Outlook projection: <b>impact</b> is his BPM/EPM blend over the last three seasons, <b>value</b> his projected VORP ((impact + 2) × projected minutes ÷ 3,936), and <b>high impact</b> = impact +${N.high} or better over 1,000+ projected minutes. Countries are listed by number of players; click a header to rank them by total value (depth and stars), value per player or high-impact players.${unk ? ` ${unk.players} birthplaces not known yet.` : ''}</p>
+    <div class="table-wrap"><table><thead><tr><th>#</th><th>Country</th><th class="num sortable" data-nsort="players">Players</th><th class="num sortable" data-nsort="high">High impact</th><th class="num">Avg impact</th><th class="num sortable" data-nsort="per">Value / player</th><th class="num sortable" data-nsort="vorp">Total value</th><th class="hide-sm">Best player</th></tr></thead><tbody id="nat-countries"></tbody></table></div>
+    <div class="toolbar" style="margin-top:16px"><label>Country <select id="nat-sel"><option value="">All countries</option>${known.map(c => `<option ${f.country === c.country ? 'selected' : ''}>${esc(c.country)}</option>`).join('')}${unk ? `<option ${f.country === 'Unknown' ? 'selected' : ''}>Unknown</option>` : ''}</select></label></div>
+    <div id="nat-players"></div>`;
+  $('#nat-sel').addEventListener('change', e => { f.country = e.target.value; f.page = 0; save(); drawPlayers(); });
+  view.querySelectorAll('[data-nsort]').forEach(th => th.addEventListener('click', () => { f.sort = th.dataset.nsort; save(); draw(); }));
+  draw(); drawPlayers();
+}
+
 /* ---------- router ---------- */
 async function route() {
   const h = location.hash.replace(/^#/, '') || 'gms';
@@ -1394,6 +1491,7 @@ async function route() {
     else if (page === 'splayer') await renderSeasonPlayer(arg);
     else if (page === 'styles') await renderStyles(arg);
     else if (page === 'salary') renderSalary();
+    else if (page === 'nations') await renderNations(arg);
     else if (page === 'drafts') await renderDrafts(arg, h.split('/')[2]);
     else if (page === 'prospect') await renderProspect(arg, h.split('/')[2]);
     else if (page === 'coach' && arg) await renderCoach(arg, false);
