@@ -608,6 +608,7 @@ async function renderOutlookTeam(team) {
 /* ---------- projected roster profile + brittleness (Outlook team page) ---------- */
 function fmtPlayerRate(key, v) {
   if (v == null) return '–';
+  if (key === '3pa40') return v.toFixed(1);
   if (key === 'ppp' || key === 'drtg') return v.toFixed(1);
   if (['ts', '3par'].includes(key)) return (v * 100).toFixed(1) + '%';
   if (key === 'ftr') return v.toFixed(3);
@@ -620,7 +621,7 @@ function projProfileSection(t, P) {
   const list = xs => xs.map(x => `<b>${esc(x.noun)}</b> <span class="muted">(#${x.rank}/${n})</span>`).join(', ');
   const sg = v => `${v >= 0 ? '+' : ''}${v.toFixed(2)}`;
   return `<h3>Projected roster profile</h3>
-    <p class="lede">What this rotation should be good and bad at, from each player's recent individual rates (last three seasons, recency-weighted; players with no NBA history get last season's average for their position group) weighted by his projected minutes (shooting, turnovers, foul drawing, 3-point volume and points per possession also by usage). Points per possession and points allowed use individual offensive and defensive ratings (per 100 possessions); the other rates are the average player on the floor. Each cell is ranked against the other ${n - 1} projected rosters: top 10 green, bottom 10 red. 3PT volume is the share of shots that are threes (3PA / FGA), not the raw number of threes.</p>
+    <p class="lede">What this rotation should be good and bad at, from each player's recent individual rates (last three seasons, recency-weighted; players with no NBA history get last season's average for their position group) weighted by his projected minutes (shooting, turnovers, foul drawing and points per possession also by usage). 3-point volume is his estimated three-point attempts per 40 minutes (usage, turnover and free-throw rates times 3PA ÷ FGA), so a high-usage shooter counts fully. Points per possession and points allowed use individual offensive and defensive ratings (per 100 possessions); the other rates are the average player on the floor. Each cell is ranked against the other ${n - 1} projected rosters: top 10 green, bottom 10 red. 3PT volume is the share of shots that are threes (3PA / FGA), not the raw number of threes.</p>
     <div class="stat-tiles" style="margin-bottom:12px">
       <div class="tile"><div class="k">Projected strengths</div><div class="small">${pr.strengths.length ? list(pr.strengths) : '<span class="muted">none in the top third</span>'}</div></div>
       <div class="tile"><div class="k">Projected weaknesses</div><div class="small">${pr.weaknesses.length ? list(pr.weaknesses) : '<span class="muted">none in the bottom third</span>'}</div></div>
@@ -884,7 +885,7 @@ async function renderSeasonPlayer(pid) {
       <div id="sty-slot"></div>
       ${prof ? draftProfileBlock(prof, prof.year, I, PD) : ''}
       ${salaryBlock(pid)}${injuryBlock(pid)}`;
-    styleSlot(view, pid);
+    styleSlot(view, pid, prof);
     bindRowLinks(view);
     return;
   }
@@ -900,7 +901,7 @@ async function renderSeasonPlayer(pid) {
     ${prof ? draftProfileBlock(prof, prof.year, I, PD) : ''}
     ${salaryBlock(pid)}${injuryBlock(pid)}`;
   bindRowLinks(view);
-  styleSlot(view, pid);
+  styleSlot(view, pid, prof);
 }
 
 /* ---------- NBA Drafts: Present and Past ---------- */
@@ -1226,7 +1227,7 @@ function skillRow(r, D, I) {
 function draftProfileBlock(r, year, I, D) {
   if (!r) return '';
   const st = r.style || {};
-  return `<h3>Draft profile (${year} board)</h3>
+  return `<h3>Draft profile (<a href="#drafts/${year}">${year} board</a>)</h3>
     ${r.other ? `<p class="small"><b>Declared for the ${year} draft and withdrew</b>${r.next_board ? ` · on the <a href="#drafts/${r.next_board}">${r.next_board} board</a>` : ''}. <a href="#drafts/other">Other section →</a></p>` : ''}
     <div class="stat-tiles" style="margin-bottom:12px">
       <div class="tile"><div class="k">Class rank</div><div class="v ${dCls(st.rank)}">${r.pred && r.pred.class_rank ? `#${r.pred.class_rank}<span class="muted small"> of ${r.pred.class_of}</span>` : '–'}</div><div class="small muted">our model's rank in the ${year} class · sheet board #${r.rank ?? '–'}, score ${dnum(r.Score, 2)}${r.pick ? `<br>drafted #${r.pick} by ${r.drafted_by}` : year < new Date().getFullYear() || new Date().getMonth() > 5 ? '<br>undrafted' : ''}</div></div>
@@ -1241,9 +1242,9 @@ function draftProfileBlock(r, year, I, D) {
       ${r.value_set && r.value_set.class_rank ? `<div class="tile"><div class="k">Value set (scouting view)</div><div class="v">#${r.value_set.class_rank} of ${r.value_set.class_of}${r.hybrid ? ` <span class="small muted">· hybrid #${r.hybrid.class_rank}</span>` : ''}</div><div class="small muted">VORP ${sgn(r.value_set.vorp, 2)} per season after your rules${r.value_set.rules.length ? ': ' + r.value_set.rules.map(([l, p]) => `${esc(l)} (${p > 0 ? '+' : ''}${p})`).join(', ') : ' (none fired)'}</div></div>` : ''}
       <div class="tile"><div class="k">Impact lean</div><div class="v">${esc(r.pred.lean)}</div><div class="small muted">predicted OBPM ${sgn(r.pred.obpm, 1)} · DBPM ${sgn(r.pred.dbpm, 1)} (first ${I && I.model ? I.model.years_out : 4} seasons)</div></div>` : ''}
     </div>
-    ${(r.tag_pos || []).length ? `<p><b>Archetype strengths:</b> ${tagPills(r.tag_pos, 'good')}</p>` : ''}
-    ${(r.tag_neg || []).length ? `<p><b>Archetype weaknesses:</b> ${tagPills(r.tag_neg, 'bad')}</p>` : ''}
-    ${r.tags_inferred && (r.tags || []).length ? '<p class="small muted">Archetypes inferred from his skill grades, height, weight and position: the sheet tags only the newest boards, so these are the tags a model learned from them predicts well (held-out F1 and precision 0.8+).</p>' : ''}
+    ${(r.tag_pos || []).length || (r.tag_neg || []).length ? `<p><b>Pros (at the draft):</b> ${(r.tag_pos || []).length ? tagPills(r.tag_pos, 'good') : '<span class="muted">none</span>'}</p>
+    <p><b>Cons (at the draft):</b> ${(r.tag_neg || []).length ? tagPills(r.tag_neg, 'bad') : '<span class="muted">none</span>'}</p>` : ''}
+    ${r.tags_formula ? '<p class="small muted">Pros and cons from the sheet&#39;s PLAYERCOMPARISON formulas applied to his skill grades, position, height and BMI at the draft (the sheet lists them only for the newest boards).</p>' : ''}
     ${D ? skillRow(r, D, I) : ''}
     ${(r.model_comps || []).length ? `<p class="small"><b>Closest past prospects (our model):</b> ${r.model_comps.map(c => `${c.i != null ? `<a href="#prospect/${c.year}/${c.i}">${esc(c.name)}</a>` : esc(c.name)} <span class="muted">(${c.year}${c.pick ? ` #${c.pick}` : ', undrafted'}, ${Math.round(c.sim * 100)}% similar)</span> ${tierPill(c.tier)}${c.career_tier !== c.tier ? ` <span class="muted">→ ${esc(c.career_tier)}</span>` : ''}`).join(', ')}</p>
     <p class="small muted">The past prospects our model treats as most alike: the share of its decision trees that put the two in the same leaf, i.e. alike on the inputs that matter for NBA value (board grades, size, college stats, school). Earlier drafts only, with how they actually turned out (first four seasons → career).</p>` : ''}
@@ -1267,7 +1268,7 @@ async function renderProspect(year, i) {
       ${r.nba ? `<div class="stat-tiles"><div class="tile"><div class="k">NBA so far</div><div class="v">${r.nba.mpg} min/g</div><div class="small muted">${r.nba.seasons} seasons, ${r.nba.games} games · BPM ${sgn(r.nba.bpm, 1)} · VORP ${r.nba.vorp}</div></div></div>` : ''}</div>
     <div id="sty-slot"></div>
     ${draftProfileBlock(r, year, I, D)}`;
-  styleSlot(view, r.pid);
+  styleSlot(view, r.pid, { ...r, year });
 }
 
 function renderMethod() {
@@ -1309,7 +1310,7 @@ function styTrend(p, key, label, X) {   // one small multiple: 0-100 within posi
       ${pts.map(d => `<circle class="sty-dot" cx="${x(d[0])}" cy="${y(d[1])}" r="4"/><circle class="sty-hit" cx="${x(d[0])}" cy="${y(d[1])}" r="11" data-tip="${esc(label)} · ${seasonLabel(d[0])}: <b>${d[1]}</b>${cm != null ? ` (career ${cm})` : ''}"/>`).join('')}
     </svg></figure>`;
 }
-function styleBlock(p, X, heading = true) {
+function styleBlock(p, X, heading = true, prof = null) {
   const sy = seasonLabel(p.labels.season_year), off = X.meta.off_keys, dk = X.meta.def_keys;
   const live = p.labels.season_year >= X.meta.current;
   const lastWord = p.labels.season_year < X.meta.latest ? 'Latest tracked season' : 'Last season';
@@ -1326,7 +1327,7 @@ function styleBlock(p, X, heading = true) {
     ${p.types.season.length || p.types.career.length ? `<p class="small">${p.types.season.length ? `<b>Defender type (${sy}${p.blend ? ', blended' : ''}):</b> ${styTypeTags(p.types.season)} ` : ''}${p.types.career.length ? `<b>Career:</b> ${styTypeTags(p.types.career)}` : ''}</p>` : ''}
     ${p.grade ? `<div class="stat-tiles sty-grades">${[['o', 'Offense'], ['d', 'Defense']].map(([k, l]) => { const g = p.grade[k]; return `<div class="tile"><div class="k">${l}</div><div class="v">${styGrade(g.season)}</div><div class="small muted">${live ? 'this season' : `${lastWord.toLowerCase()} (${sy})`}${g.season != null ? `, ${g.season}th pct` : ''}<br>overall: ${styGrade(g.overall, ', seasons weighted by games, recent ones more')}</div></div>`; }).join('')}</div>
     <p class="small muted">Offense and defense grades compare him with every player that season (not just his position): offense weighs points per 48, true shooting, assists, ball security, usage and offensive rating; defense weighs shot defense (opponents' FG% vs normal), shots contested, at-rim defense, steals, blocks, defensive boards and defensive rating. Elite = top 5% of the league, very good 80th–95th percentile, good 60th–80th, OK 40th–60th, bad 20th–40th, very bad bottom 20%. Overall weights his seasons by games, each earlier season ×0.75.</p>` : ''}
-    ${row('Offense', 0)}${row('Defense', 1)}
+    ${row('Offense', 0)}${row('Defense', 1)}${draftPcRow(prof)}
     ${stySummary(p)}
     ${styComplement(p)}
     <p class="small muted">Each trend is 0–100 against players at his position that season (higher = more of it, or better at it; ball security and discipline are inverted turnovers and fouls). Dots are seasons, the dashed line is his career average, the faint line is 50. Hover a dot for the value.</p>
@@ -1340,15 +1341,20 @@ const styList = a => a.length <= 1 ? (a[0] || '') : a.slice(0, -1).join(', ') + 
 function stySummary(p) {   // one sentence of strengths, one of weaknesses, from this season's and last season's labels
   const cur = [...p.labels.season[0], ...p.labels.season[1]], prev = p.labels.prev ? [...p.labels.prev[0], ...p.labels.prev[1]] : [];
   const yrs = p.labels.prev_year ? `${seasonLabel(p.labels.prev_year)} and ${seasonLabel(p.labels.season_year)}` : seasonLabel(p.labels.season_year);
-  const pick = tone => { const both = cur.filter(l => styTone(l) === tone && prev.includes(l)), one = [...cur, ...prev].filter(l => styTone(l) === tone && !both.includes(l));
-    return [...new Set([...both, ...one])].slice(0, 7); };
+  // a last-season grade (+/-, dunking, passing, shot-blocking, three-point threat) is superseded by this season's; labels seen only last season say so
+  const pm = l => l.includes('+/-') ? (l.includes('offensive') ? 'o' : 'd') : /dunker/.test(l) ? 'dunk' : /passer|passing ability/.test(l) ? 'pass'
+    : /shot-blocker/.test(l) ? 'blk' : /three-point threat/.test(l) ? '3pt' : null, curPm = new Set(cur.map(pm).filter(Boolean));
+  const py = p.labels.prev_year ? seasonLabel(p.labels.prev_year) : '';
+  const pick = tone => { const both = cur.filter(l => styTone(l) === tone && prev.includes(l)), now = cur.filter(l => styTone(l) === tone && !both.includes(l)),
+      old = prev.filter(l => styTone(l) === tone && !cur.includes(l) && !curPm.has(pm(l))).map(l => `${l} (${py})`);
+    return [...new Set([...both, ...now, ...old])].slice(0, 7); };
   const pros = pick('good'), cons = pick('bad');
   const av = p.pid && SALBY[p.pid] && SALBY[p.pid].avail, ayrs = av && av.seasons.length ? `${seasonLabel(av.seasons[0].season)}–${seasonLabel(av.seasons[av.seasons.length - 1].season)}` : '';
   if (av && av.label === 'Injury prone') cons.unshift(`injury prone (missed ${av.pct}% of games, ${ayrs})`);
   if (av && av.label === 'Durable') pros.push(`durable (missed ${av.pct}% of games, ${ayrs})`);
   return `<div class="sty-summary"><p><b>Strengths</b> (${yrs}): ${pros.length ? esc(styList(pros)) : 'nothing stands out in the tracking numbers'}.</p>
     <p><b>Weaknesses</b>: ${cons.length ? esc(styList(cons)) : 'no clear holes in the tracking numbers'}.</p>
-    <p class="small muted">Labels seen in both seasons come first.</p></div>`;
+    <p class="small muted">Labels seen in both seasons come first, then this season's; ones seen only in ${py || 'the season before'} are marked with it.</p></div>`;
 }
 function styComplement(p) {
   const c = p.complement, f = p.team_fit;
@@ -1375,10 +1381,14 @@ function bindStyTips(view) {
     c.addEventListener('mouseleave', () => { tip.hidden = true; });
   });
 }
-async function styleSlot(view, pid) {   // the style block on player / prospect pages, before the draft section
+// his pros and cons on the draft board, beside the NBA labels for comparison
+const draftPcRow = r => !r || !((r.tag_pos || []).length || (r.tag_neg || []).length) ? '' : `<div class="sty-row"><div class="sty-k">At the draft</div>
+      <div><div class="small muted">Pros (<a href="#drafts/${r.year}">${r.year} board</a>)</div>${(r.tag_pos || []).length ? tagPills(r.tag_pos, 'good') : '<span class="muted small">none</span>'}</div>
+      <div><div class="small muted">Cons (<a href="#drafts/${r.year}">${r.year} board</a>)</div>${(r.tag_neg || []).length ? tagPills(r.tag_neg, 'bad') : '<span class="muted small">none</span>'}</div></div>`;
+async function styleSlot(view, pid, prof = null) {   // the style block on player / prospect pages, before the draft section
   const got = await styleByPid(pid), slot = $('#sty-slot', view);
   if (!got || !slot) return;
-  slot.innerHTML = styleBlock(got.p, got.X) + `<p class="small"><a href="#styles">All player styles →</a></p>`;
+  slot.innerHTML = styleBlock(got.p, got.X, true, prof) + `<p class="small"><a href="#styles">All player styles →</a></p>`;
   bindStyTips(slot);
 }
 async function renderStyles(id) {
