@@ -537,15 +537,16 @@ async function renderCoach(id, former) {
 }
 
 /* ---------- outlook (this season's expectation score) ---------- */
-function renderOutlook() {
+async function renderOutlook() {
   const view = $('#view');
-  const P = S.projection;
+  const P = S.projection, LU = await lineupsData();
+  const eth = (t, k) => { const x = LU[t.team]; return x ? `<td class="num" title="${x.counts[k].ok} of ${x.rotation} rotation players are OK or better (3 or lower on the 1-5 scale); ${x.counts[k].bad} above 3">${x.counts[k].ok}<span class="muted small">/${x.rotation}</span></td>` : '<td class="num">–</td>'; };
   if (!P) { view.innerHTML = '<p class="empty">No roster projection yet.</p>'; return; }
   view.innerHTML = `
     <h2>${seasonLabel(P.season)} Outlook</h2>
     <p class="lede">The <b>expectation score</b> projects each team's net rating (points per 100 possessions vs an average team) from its current roster: every player's projected impact (Box Plus/Minus from his last three seasons, with aging; rookies from their draft slot and college stats) weighted by his projected minutes and games, with each roster summing to the same 19,680 minutes of an 82-game season. Click a team for its projected rotation. <a href="#injuries"><b>Severe injuries →</b></a> who will miss games this season, why, and for how long.</p>
     <div class="table-wrap"><table>
-      <thead><tr><th>#</th><th>Team</th><th class="num" title="Projected net rating, points per 100 possessions vs an average team">Expectation score</th><th class="num hide-sm" title="From the projected roster alone">Roster</th><th class="num hide-sm" title="Actual net rating last season (vs league average), weighted 25%">Last season</th><th class="num">Projected wins</th><th class="hide-sm">Top contributors</th><th class="num hide-sm">Roster</th></tr></thead>
+      <thead><tr><th>#</th><th>Team</th><th class="num" title="Projected net rating, points per 100 possessions vs an average team">Expectation score</th><th class="num hide-sm" title="From the projected roster alone">Roster</th><th class="num hide-sm" title="Actual net rating last season (vs league average), weighted 25%">Last season</th><th class="num">Projected wins</th><th class="hide-sm">Top contributors</th><th class="num hide-sm">Roster</th><th class="num" title="Rotation players (15+ projected min/g) who are OK or better on offense (3 or lower on the 1-5 lineup scale)">Off. ethos</th><th class="num" title="The same on defense">Def. ethos</th></tr></thead>
       <tbody>${P.teams.map(t => `<tr class="link" data-href="#outlook/${t.team}">
         <td class="rank">${t.rank}</td>
         <td class="name"><span class="team-tag">${t.team}</span><a href="#outlook/${t.team}">${esc(t.team_name)}</a></td>
@@ -553,11 +554,38 @@ function renderOutlook() {
         <td class="num hide-sm">${sgn(t.roster_net)}</td><td class="num hide-sm">${t.last_net == null ? '–' : sgn(t.last_net)}</td>
         <td class="num">${Math.round(t.wins)}-${82 - Math.round(t.wins)}</td>
         <td class="hide-sm small">${t.top.map(esc).join(', ')}</td>
-        <td class="num hide-sm">${t.roster_size}</td></tr>`).join('')}</tbody></table></div>
+        <td class="num hide-sm">${t.roster_size}</td>${eth(t, 'o')}${eth(t, 'd')}</tr>`).join('')}</tbody></table></div>
     <p class="small muted">Rosters are the current Basketball-Reference team pages (including training-camp players, who mostly project to few minutes). Rookies are projected from draft position plus college stats where available (international players from draft position only); their roles grow where the roster leaves minutes open at their position. See Method for details and the backtest.</p>`;
   bindRowLinks(view);
 }
 
+let LINEUPS = null;
+async function lineupsData() { if (!LINEUPS) { try { LINEUPS = await getJSON('data/lineups.json'); } catch (e) { LINEUPS = {}; } } return LINEUPS; }
+function lineupBlurb(l) {   // who provides what, and how liabilities are covered
+  const by = {};
+  Object.entries(l.providers).forEach(([k, n]) => { (by[n] = by[n] || []).push(k); });
+  const parts = Object.entries(by).map(([n, ks]) => `<b>${esc(n)}</b> brings ${esc(styList(ks))}`);
+  const covers = l.covers.map(c => esc(c) + '.');
+  return `${parts.length ? parts.join('; ') + '.' : ''} ${covers.join(' ')}${l.gaps.length ? ` What this five lacks: ${esc(styList(l.gaps))}.` : ' It covers every core skill.'}`;
+}
+function unitSection(team, L, full = true) {   // rotation players by five-man role, and the best five
+  const x = L && L[team];
+  if (!x) return '';
+  const c = x.counts, l = x.lineup;
+  const tile = (k, w) => `<div class="tile"><div class="k">${w} ethos</div><div class="v">${c[k].ok} of ${x.rotation}</div><div class="small muted">rotation players OK or better (3 or lower on the 1–5 scale)${c[k].bad ? ` · ${c[k].bad} liabilit${c[k].bad === 1 ? 'y' : 'ies'} (above 3)` : ''}${c[k].unknown ? ` · ${c[k].unknown} not tracked yet` : ''}</div></div>`;
+  const rn = v => v == null ? '–' : v.toFixed(1);
+  const lu = !l ? '' : `<h3>Best five-man lineup</h3>
+    <div class="table-wrap"><table><thead><tr><th>Player</th><th>Pos</th><th class="num" title="1 leads the unit, 5 has to be hidden">Offense role</th><th class="num">Defense role</th><th class="num" title="Outlook projected impact (BPM)">Impact</th></tr></thead><tbody>
+      ${l.players.map(p => `<tr class="link" data-href="#splayer/${p.pid}"><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td><td>${esc(p.pos)}</td><td class="num ${p.o >= 4 ? 'd-col-red' : ''}">${rn(p.o)}</td><td class="num ${p.d >= 4 ? 'd-col-red' : ''}">${rn(p.d)}</td><td class="num">${sgn(p.bpm, 1)}</td></tr>`).join('')}
+      <tr class="sum"><td>Lineup</td><td></td><td class="num">${rn(l.roles.o)}</td><td class="num">${rn(l.roles.d)}</td><td class="num strong">${sgn(l.net, 1)}</td></tr></tbody></table></div>
+    <p><b>Projected impact: ${sgn(l.net, 1)} per 100 possessions</b> (the five players' projected impact adds up to the unit's net rating vs an average lineup), synergy ${sgn(l.synergy, 1)}.
+</p>
+    <p>${lineupBlurb(l)}</p>`;
+  const alts = (x.alts || []).map(a => `<h4>Alternative unit around ${esc(a.anchor)}</h4>
+    <p>${a.players.map(p => `<a href="#splayer/${p.pid}">${esc(p.name)}</a> <span class="muted small">(${rn(p.o)} / ${rn(p.d)})</span>`).join(', ')} · projected impact <b>${sgn(a.net, 1)}</b> per 100</p>
+    <p class="small">${lineupBlurb(a)} ${a.clash ? "He doesn't fit beside the best five's center (two non-shooting centers crowd the paint), so he anchors this unit instead: when the starter sits, or as the second-unit big." : 'The best unit with him at center.'}</p>`).join('');
+  return `<div class="stat-tiles" style="margin-bottom:12px">${tile('o', 'Offensive')}${tile('d', 'Defensive')}</div>${full ? lu + alts : ''}`;
+}
 async function renderOutlookTeam(team) {
   const view = $('#view');
   const P = await getJSON('data/projection.json');
@@ -601,6 +629,8 @@ async function renderOutlookTeam(team) {
     <p class="small muted">Contributions add up to the roster projection (${sgn(t.roster_net)}). The expectation score blends it 75/25 with the team's actual net rating last season (${t.last_net == null ? '–' : sgn(t.last_net)} vs league average), which tracks real results better in the backtest.</p>
     ${P.college_model ? `<p class="small muted">College model: fitted on ${P.college_model.samples} past draftees; typical error ${P.college_model.mae_model} BPM vs ${P.college_model.mae_prior} for draft slot alone (leave-one-draft-year-out) — ${P.college_model.used ? 'used for rookies with college stats' : 'not better than draft slot, so not used'}.</p>` : ''}
     ${bt.length ? `<p class="small muted">Backtest (past seasons rebuilt from each season's roster with projected minutes): correlation with real net rating ${bt.map(r => `${seasonLabel(r.season)} ${r.corr}`).join(', ')}; typical miss ${bt.map(r => r.mae_net).join(' / ')} points.</p>` : ''}
+    <h3>Five-man roles and best lineup</h3>
+    ${unitSection(team, await lineupsData())}
     ${projProfileSection(t, P)}
     ${projDepthSection(t, P)}`;
 }
@@ -734,6 +764,8 @@ async function renderSeason(team) {
         <div class="tile"><div class="k">Coach score</div><div class="v">${sgn(t.coach_score, 1)}</div><div class="small muted">${t.coach_rank ? `#${t.coach_rank} of ${of} coaches` : 'no games yet'} · ${sgn(t.coach_per_game, 1)} per game</div></div>
         <div class="tile"><div class="k">Injury score</div><div class="v">${t.injury_score.toFixed(1)}</div><div class="small muted">${t.injury_rank ? `#${t.injury_rank} of ${of} most injured` : ''} · adds up over the season</div></div>
       </div></div>
+    <h3>Five-man roles and best lineup <span class="muted small">· ${seasonLabel(Z.season)} rotation (15+ projected min/g)</span></h3>
+    ${unitSection(team, await lineupsData())}
     <div class="toolbar">${teamSelect(Z, team)}</div>
     <h3>Games</h3>${games.length ? gamesTable(games, team) : '<p class="empty">No games yet.</p>'}
     <h3>Players by grade</h3>
@@ -1268,6 +1300,7 @@ async function renderProspect(year, i) {
       ${r.nba ? `<div class="stat-tiles"><div class="tile"><div class="k">NBA so far</div><div class="v">${r.nba.mpg} min/g</div><div class="small muted">${r.nba.seasons} seasons, ${r.nba.games} games · BPM ${sgn(r.nba.bpm, 1)} · VORP ${r.nba.vorp}</div></div></div>` : ''}</div>
     <div id="sty-slot"></div>
     ${draftProfileBlock(r, year, I, D)}`;
+  if (r.pid) hasPlayerPage(r.pid).then(ok => { if (ok) { const h = view.querySelector('.hero .who h2'); if (h) h.insertAdjacentHTML('afterend', `<p class="small"><a href="#splayer/${r.pid}">Player page: NBA style, salary and more →</a></p>`); } });
   styleSlot(view, r.pid, { ...r, year });
 }
 
@@ -1291,6 +1324,10 @@ const styTypeTags = ts => ts.map(([k]) => `<span class="sty-type sty-${k}">${esc
 const STY_GRADES = [[95, 'Elite', 'VERY_GOOD'], [80, 'Very good', 'VERY_GOOD'], [60, 'Good', 'GOOD'], [40, 'OK', 'OK'], [20, 'Bad', 'BAD'], [0, 'Very bad', 'VERY_BAD']];
 const styGrade = (pct, tip = '') => { if (pct == null) return '<span class="muted">–</span>'; const g = STY_GRADES.find(x => pct >= x[0]); return `<span class="pill ${g[2]}" title="${pct}th percentile of the league${tip}">${g[1]}</span>`; };
 let styIdx = null;
+async function hasPlayerPage(pid) {   // a page exists when he has tracking, a 2026-27 roster spot or games this season
+  try { const X = await styIndex(); if (X.players.some(p => p.pid === pid && (p.id || p.cur))) return true; } catch (e) {}
+  try { await getJSON(`data/season/players/${pid}.json`); return true; } catch (e) { return false; }
+}
 async function styIndex() { if (!styIdx) { styIdx = await getJSON('data/styles/index.json'); X_META = styIdx.meta; } return styIdx; }
 async function styleByPid(pid) {
   if (!pid) return null;
@@ -1310,6 +1347,25 @@ function styTrend(p, key, label, X) {   // one small multiple: 0-100 within posi
       ${pts.map(d => `<circle class="sty-dot" cx="${x(d[0])}" cy="${y(d[1])}" r="4"/><circle class="sty-hit" cx="${x(d[0])}" cy="${y(d[1])}" r="11" data-tip="${esc(label)} · ${seasonLabel(d[0])}: <b>${d[1]}</b>${cm != null ? ` (career ${cm})` : ''}"/>`).join('')}
     </svg></figure>`;
 }
+// his place in a five-man unit, 1 (leads it) to 5 (has to be hidden)
+const roleLine = (r, side) => !r ? '' : `<div class="role-line"><b title="1 = leads a five-man unit on this end, 5 = has to be hidden">${r.n.toFixed(1)}</b><span class="small"> / 5 in a lineup · ${esc(r.word)}${r.hide ? ` <span class="pill VERY_BAD">hide on ${side.toLowerCase()}</span>` : ''}</span>${r.notes.length ? `<div class="small muted">${esc(r.notes.join('; '))}</div>` : ''}</div>`;
+function impactBlock(m) {   // PER this season (past seasons on click) and the washed-up / out-of-the-league flags
+  if (!m) return '';
+  const c = m.current, last = m.seasons[m.seasons.length - 1];
+  const head = c ? `PER ${seasonLabel(c.season)}: <b>${c.per.toFixed(1)}</b> <span class="muted small">(${c.g} game${c.g === 1 ? '' : 's'} so far)</span>` : last ? `PER ${seasonLabel(last.season)}: <b>${last.per == null ? '–' : last.per.toFixed(1)}</b> <span class="muted small">(no games this season yet)</span>` : 'PER';
+  const flags = [m.washed ? `<span class="pill BAD" title="29+ and last season's PER or impact fell well below his three seasons before">Washed up</span> <span class="small muted">${seasonLabel(m.washed.season)} PER ${m.washed.per} vs ${m.washed.per_before} the three seasons before, impact ${sgn(m.washed.bpm, 1)} vs ${sgn(m.washed.bpm_before, 1)}</span>` : '',
+    m.out ? `<span class="pill VERY_BAD" title="Single-digit PER with average or worse defense">Should be out of the league</span> <span class="small muted">PER ${m.out.per} last season${m.out.per3 != null ? `, ${m.out.per3} over his last three` : ''}, defense ${esc(m.out.d)}</span>` : ''].filter(Boolean);
+  // average PER over his last three seasons with 300+ minutes (as the out-of-the-league check uses)
+  const three = m.seasons.slice(-3).filter(x => x.per != null && (x.mp || 0) >= 300);
+  const avg3 = three.length ? three.reduce((a, x) => a + x.per, 0) / three.length : null;
+  const avgTxt = avg3 == null ? '' : ` · 3-season average <b>${avg3.toFixed(1)}</b> <span class="muted small">(${three.length === 1 ? seasonLabel(three[0].season) : `${seasonLabel(three[0].season)} to ${seasonLabel(three[three.length - 1].season)}`})</span>`;
+  return `<details class="per-line"><summary>${head}${avgTxt} <span class="small muted">· past seasons</span></summary>
+      <div class="table-wrap"><table class="sty-table"><thead><tr><th>Season</th><th class="num">PER</th><th class="num" title="Box plus/minus">Impact (BPM)</th><th class="num">Games</th><th class="num">Min</th></tr></thead><tbody>
+      ${c ? `<tr><td>${seasonLabel(c.season)} <span class="muted small">so far</span></td><td class="num strong">${c.per.toFixed(1)}</td><td class="num">–</td><td class="num">${c.g}</td><td class="num">${c.mp}</td></tr>` : ''}
+      ${[...m.seasons].reverse().map(x => `<tr><td>${seasonLabel(x.season)}</td><td class="num">${x.per == null ? '–' : x.per.toFixed(1)}</td><td class="num">${sgn(x.bpm, 1)}</td><td class="num">${x.g ?? '–'}</td><td class="num">${x.mp == null ? '–' : Math.round(x.mp).toLocaleString()}</td></tr>`).join('')}</tbody></table></div>
+      <p class="small muted">The 3-season average counts his last three seasons with 300+ minutes. PER from Basketball-Reference for past seasons; this season's is computed from the box scores so far (Hollinger's formula, pace-adjusted, league average 15).</p></details>
+    ${flags.length ? `<p>${flags.join('<br>')}</p>` : ''}`;
+}
 function styleBlock(p, X, heading = true, prof = null) {
   const sy = seasonLabel(p.labels.season_year), off = X.meta.off_keys, dk = X.meta.def_keys;
   const live = p.labels.season_year >= X.meta.current;
@@ -1324,8 +1380,9 @@ function styleBlock(p, X, heading = true, prof = null) {
       <tr><td class="nowrap"><b>${title} grade</b></td>${yrs.map(s => `<td class="num">${styGrade(p.seasons[s][gk[title]])}</td>`).join('')}<td class="num">${styGrade(p.grade && p.grade[gk[title][0]].overall)}</td></tr>
       ${keys.map(([k, l]) => `<tr><td class="nowrap">${esc(l)}</td>${yrs.map(s => { const v = p.seasons[s][k]; return `<td class="num ${styBand(v)}">${v ?? '–'}</td>`; }).join('')}<td class="num ${styBand(p.career[k])}">${p.career[k] ?? '–'}</td></tr>`).join('')}</tbody></table></div>`;
   return `<section class="sty-block">${heading ? `<h3>Player style <span class="muted small">· nba.com tracking, ${seasonLabel(X.meta.seasons[0])} to ${seasonLabel(X.meta.latest)}</span></h3>` : ''}
+    ${impactBlock(p.impact)}
     ${p.types.season.length || p.types.career.length ? `<p class="small">${p.types.season.length ? `<b>Defender type (${sy}${p.blend ? ', blended' : ''}):</b> ${styTypeTags(p.types.season)} ` : ''}${p.types.career.length ? `<b>Career:</b> ${styTypeTags(p.types.career)}` : ''}</p>` : ''}
-    ${p.grade ? `<div class="stat-tiles sty-grades">${[['o', 'Offense'], ['d', 'Defense']].map(([k, l]) => { const g = p.grade[k]; return `<div class="tile"><div class="k">${l}</div><div class="v">${styGrade(g.season)}</div><div class="small muted">${live ? 'this season' : `${lastWord.toLowerCase()} (${sy})`}${g.season != null ? `, ${g.season}th pct` : ''}<br>overall: ${styGrade(g.overall, ', seasons weighted by games, recent ones more')}</div></div>`; }).join('')}</div>
+    ${p.grade ? `<div class="stat-tiles sty-grades">${[['o', 'Offense'], ['d', 'Defense']].map(([k, l]) => { const g = p.grade[k]; return `<div class="tile"><div class="k">${l}</div><div class="v">${styGrade(g.season)}</div><div class="small muted">${live ? 'this season' : `${lastWord.toLowerCase()} (${sy})`}${g.season != null ? `, ${g.season}th pct` : ''}<br>overall: ${styGrade(g.overall, ', seasons weighted by games, recent ones more')}</div>${roleLine(p.role && p.role[k], l)}</div>`; }).join('')}</div>
     <p class="small muted">Offense and defense grades compare him with every player that season (not just his position): offense weighs points per 48, true shooting, assists, ball security, usage and offensive rating; defense weighs shot defense (opponents' FG% vs normal), shots contested, at-rim defense, steals, blocks, defensive boards and defensive rating. Elite = top 5% of the league, very good 80th–95th percentile, good 60th–80th, OK 40th–60th, bad 20th–40th, very bad bottom 20%. Overall weights his seasons by games, each earlier season ×0.75.</p>` : ''}
     ${row('Offense', 0)}${row('Defense', 1)}${draftPcRow(prof)}
     ${stySummary(p)}
@@ -1352,6 +1409,8 @@ function stySummary(p) {   // one sentence of strengths, one of weaknesses, from
   const av = p.pid && SALBY[p.pid] && SALBY[p.pid].avail, ayrs = av && av.seasons.length ? `${seasonLabel(av.seasons[0].season)}–${seasonLabel(av.seasons[av.seasons.length - 1].season)}` : '';
   if (av && av.label === 'Injury prone') cons.unshift(`injury prone (missed ${av.pct}% of games, ${ayrs})`);
   if (av && av.label === 'Durable') pros.push(`durable (missed ${av.pct}% of games, ${ayrs})`);
+  if (p.impact && p.impact.out) cons.unshift('should be out of the league (single-digit PER, average or worse defense)');
+  if (p.impact && p.impact.washed) cons.unshift(`washed up (PER ${p.impact.washed.per} vs ${p.impact.washed.per_before} before)`);
   return `<div class="sty-summary"><p><b>Strengths</b> (${yrs}): ${pros.length ? esc(styList(pros)) : 'nothing stands out in the tracking numbers'}.</p>
     <p><b>Weaknesses</b>: ${cons.length ? esc(styList(cons)) : 'no clear holes in the tracking numbers'}.</p>
     <p class="small muted">Labels seen in both seasons come first, then this season's; ones seen only in ${py || 'the season before'} are marked with it.</p></div>`;
@@ -1494,7 +1553,7 @@ async function route() {
     else if (page === 'former' && arg) await renderGM(arg, true);
     else if (page === 'coaches') renderCoaches();
     else if (page === 'outlook' && arg) await renderOutlookTeam(arg);
-    else if (page === 'outlook') renderOutlook();
+    else if (page === 'outlook') await renderOutlook();
     else if (page === 'injuries') await renderInjuries();
     else if (page === 'season') await renderSeason(arg);
     else if (page === 'game') await renderGame(arg);

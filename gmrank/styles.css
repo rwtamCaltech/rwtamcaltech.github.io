@@ -278,3 +278,8 @@ span.sv-elite, span.sv-good, span.sv-mid, span.sv-poor, span.sv-zero, b.sv-elite
 .pager { display: flex; gap: 10px; align-items: center; justify-content: center; margin: 10px 0; }
 .pager button { font: inherit; padding: 4px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; }
 .pager button:disabled { opacity: .4; cursor: default; }
+
+.role-line { margin-top: 6px; border-top: 1px solid var(--line, rgba(127,127,127,.25)); padding-top: 6px; }
+.role-line b { font-size: 1.15em; }
+.per-line { margin: 6px 0 10px; }
+.per-line summary { cursor: pointer; }
