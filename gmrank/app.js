@@ -768,19 +768,44 @@ function gamesTable(games, team) {
       <td class="num strong ${zCls(d / 4)}">${sgn(d, 1)}</td>${team ? `<td class="num">${sgn(tally[g.id], 1)}</td>` : ''}
       <td class="num hide-sm">${g.inj_away.toFixed(1)} / ${g.inj_home.toFixed(1)}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
+// Basketball Monster ranks of a team's players this season (12-team rounds: top 5 rounds = rank 60 or better, top 10 = 120)
+function fantTeam(t) {
+  const L = t.players.map(p => ({ p, f: FANT && FANT[p.pid] && FANT[p.pid].cur })).filter(x => x.f).sort((a, b) => a.f.rank - b.f.rank);
+  return { list: L, top: L[0] || null, r5: L.filter(x => x.f.rank <= 60), r10: L.filter(x => x.f.rank <= 120) };
+}
+function usageTiers(t) {   // players with real roles so far (40%+ of the team's games, 15+ min/game) at usage 20%+ and 15-20%
+  const need = Math.max(1, Math.ceil(0.4 * (t.games || 0)));
+  const L = t.players.filter(p => p.games >= need && p.mpg >= 15).map(p => { const f = FANT && FANT[p.pid] && FANT[p.pid].cur;
+    return f && f.usg != null ? { p, u: f.usg, q: f.usg_pct, g: f.grp } : p.usg != null ? { p, u: p.usg, q: p.usg_pct, g: p.grp } : null; })
+    .filter(Boolean).sort((a, b) => b.u - a.u);
+  return { need, hi: L.filter(x => x.u >= 20), mid: L.filter(x => x.u >= 15 && x.u < 20) };
+}
+const usgMixBand = q => q >= 80 ? 'sv-elite' : q >= 60 ? 'sv-good' : q >= 40 ? 'sv-mid' : 'sv-poor';
+const fantTip = L => L.length ? tipEsc(L.map(x => `${x.p.name}: ${fRound(x.f.rank)} (round ${Math.ceil(x.f.rank / 12)}, pick ${(x.f.rank - 1) % 12 + 1}; #${x.f.rank})`).join('\n')).replace(/\n/g, '&#10;') : 'none';
+const fantCell = f => f ? `<td class="num" data-v="${f.rank}" title="Basketball Monster value ${sgn(f.value, 2)} per game; round ${Math.ceil(f.rank / 12)}, pick ${(f.rank - 1) % 12 + 1} in a 12-team league">#${f.rank} <span class="muted small">${fRound(f.rank)}</span></td>` : '<td class="num" data-v="">–</td>';
 async function renderSeason(team) {
   const view = $('#view');
   const Z = await seasonData();
+  await fantasyData();
   const lede = `<p class="lede">Every ${seasonLabel(Z.season)} game, newest first, updated nightly (2 AM Pacific). Each team's <b>expectation</b> uses the players who actually played and their minutes: each player's expected impact is his Outlook projection (last three seasons, recency- and games-weighted; rookies from draft slot and college stats), blended with his box-score impact this season once he has ${Z.min_games} games (games ÷ (games + ${Z.season_k})). Expected margin = home − away + ${Z.home_edge} for home court. <b>Coach score</b> adds up actual − expected margins for his team (points), so + means the team beat what its players should have produced. The <b>injury score</b> adds up what absent rotation players would have added over a replacement-level fill-in. Click a game for its box score and player grades.</p>`;
   if (!team) {
     view.innerHTML = `<h2>${seasonLabel(Z.season)} Teams</h2>${lede}
       <div class="toolbar">${teamSelect(Z)} <span class="small muted">Updated ${esc(Z.updated.replace('T', ' '))} · ${Z.games.length} games</span></div>
       <h3>Teams by coach score (over / under expectation)</h3>
-      <div class="table-wrap"><table><thead><tr><th>#</th><th>Team</th><th>Coach</th><th class="num">Record</th><th class="num">Coach score</th><th class="num">Per game</th><th class="num">Injury score</th><th class="hide-sm">Top grade</th></tr></thead><tbody>
-      ${Z.teams.filter(t => t.games).map(t => `<tr class="link" data-href="#season/${t.team}"><td class="rank">${t.coach_rank}</td>
+      <p class="small muted">Click a column to sort. Fantasy: <a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a> 9-cat ranks; round.pick in a 12-team league (2.08 = round 2, pick 8).</p>
+      <div class="table-wrap"><table class="season-teams"><thead><tr><th>#</th><th>Team</th><th>Coach</th><th class="num">Record</th><th class="num">Coach score</th><th class="num">Per game</th><th class="num">Injury score</th><th class="hide-sm">Top grade</th><th title="His best player by Basketball Monster rank this season (12-team round.pick), with BBM value and fantasy points per game">Top fantasy</th><th class="num" title="Players ranked in the top 5 rounds of a 12-team league (top 60)">Top 5 rds</th><th class="num" title="Players ranked in the top 10 rounds (top 120)">Top 10 rds</th><th class="num" title="Usage mix: players at 20%+ usage - players at 15-20% (40%+ of the team's games, 15+ min/game); hover for names">Usage 20+ / 15–20</th></tr></thead><tbody>
+      ${(() => {   // usage-mix color: percentile of (20%+ players + half the 15-20% players) across teams; more spread = greener
+        const sc = t => { const u = usageTiers(t); return u.hi.length + 0.5 * u.mid.length; };
+        const all = Z.teams.filter(t => t.games).map(sc);
+        Z._usgPct = t => { const v = sc(t); return Math.round(100 * (all.filter(x => x < v).length + 0.5 * all.filter(x => x === v).length) / all.length); };
+        return ''; })()}
+      ${Z.teams.filter(t => t.games).map(t => { const ft = fantTeam(t), ut = usageTiers(t); return `<tr class="link" data-href="#season/${t.team}"><td class="rank">${t.coach_rank}</td>
         <td class="name"><span class="team-tag">${t.team}</span><a href="#season/${t.team}">${esc(t.team_name)}</a></td><td>${esc(t.coach || '–')}</td>
         <td class="num">${t.w}-${t.l}</td><td class="num strong ${zCls(t.coach_score / 8)}">${sgn(t.coach_score, 1)}</td><td class="num">${sgn(t.coach_per_game, 1)}</td>
-        <td class="num">${t.injury_score.toFixed(1)}</td><td class="hide-sm">${t.players[0] ? `<a href="#splayer/${t.players[0].pid}">${esc(t.players[0].name)}</a> ${gradePill(t.players[0].grade)}` : ''}</td></tr>`).join('')}</tbody></table></div>
+        <td class="num">${t.injury_score.toFixed(1)}</td><td class="hide-sm">${t.players[0] ? `<a href="#splayer/${t.players[0].pid}">${esc(t.players[0].name)}</a> ${gradePill(t.players[0].grade)}` : ''}</td>
+        <td data-v="${ft.top ? ft.top.f.rank : ''}">${ft.top ? `<a href="#splayer/${ft.top.p.pid}">${esc(ft.top.p.name)}</a> <b>${fRound(ft.top.f.rank)}</b> <span class="muted small">#${ft.top.f.rank} · ${sgn(ft.top.f.value, 2)}${ft.top.p.fp != null ? ` · ${ft.top.p.fp} FP/g` : ''}</span>` : '–'}</td>
+        <td class="num has-tip" title="${fantTip(ft.r5)}">${ft.r5.length}</td><td class="num has-tip" title="${fantTip(ft.r10)}">${ft.r10.length}</td>
+        <td class="num" data-v="${ut.hi.length + ut.mid.length / 10}"><span class="has-tip ${usgMixBand(Z._usgPct(t))}" title="${tipEsc(`20%+: ${ut.hi.map(x => `${x.p.name} ${x.u.toFixed(1)}`).join(', ') || 'none'}\n15-20%: ${ut.mid.map(x => `${x.p.name} ${x.u.toFixed(1)}`).join(', ') || 'none'}`).replace(/\n/g, '&#10;')}">${ut.hi.length}-${ut.mid.length}</span></td></tr>`; }).join('')}</tbody></table></div>
       <h3>Injury score (most injured first)</h3>
       <p class="lede">What each team's absent rotation players (projected 12+ min/game) would have added over a replacement-level fill-in, added up over every game (points per 100).</p>
       <div class="table-wrap"><table><thead><tr><th>#</th><th>Team</th><th class="num">Injury score</th><th class="num">Per game</th><th class="num">Record</th></tr></thead><tbody>
@@ -792,6 +817,7 @@ async function renderSeason(team) {
       <p class="lede">Minutes-weighted average grade score (or offense / defense score) over every graded game this season (10+ minutes)${Z.top_min_games > 1 ? `; at least ${Z.top_min_games} graded games` : ''}.</p>
       <div id="top-table">${topTable(Z, 'score')}</div>
       <h3>Games</h3>${gamesTable(Z.games)}`;
+    sortableTables(view, '.season-teams');
     view.querySelectorAll('#top-seg button').forEach(b => b.addEventListener('click', () => {
       view.querySelectorAll('#top-seg button').forEach(x => x.classList.toggle('on', x === b));
       const box = view.querySelector('#top-table');
@@ -816,10 +842,22 @@ async function renderSeason(team) {
     ${unitSection(team, await lineupsData())}
     <div class="toolbar">${teamSelect(Z, team)}</div>
     <h3>Games</h3>${games.length ? gamesTable(games, team) : '<p class="empty">No games yet.</p>'}
+    ${(() => { const ft = fantTeam(t); const li = L => L.length ? L.map(x => `<a href="#splayer/${x.p.pid}">${esc(x.p.name)}</a> <b>${fRound(x.f.rank)}</b> <span class="muted small">#${x.f.rank}</span>`).join(' · ') : '<span class="muted">none</span>';
+      return `<h3>Fantasy depth <span class="muted small">· <a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a> ranks this season, 12-team league</span></h3>
+      <p><b>Top 5 rounds (${ft.r5.length}):</b> ${li(ft.r5)}</p>
+      <p><b>Top 10 rounds (${ft.r10.length}):</b> ${li(ft.r10)}</p>`; })()}
+    ${(() => {   // usage tiers among players with real roles so far: 40%+ of the team's games and 15+ min/game
+      const { need, hi, mid } = usageTiers(t);
+      const G = { guard: 'guards', wing: 'wings', big: 'bigs' };
+      const li = X => X.length ? X.map(x => `<a href="#splayer/${x.p.pid}">${esc(x.p.name)}</a> <b>${x.u.toFixed(1)}%</b>${x.q != null ? ` <span class="pill ${usgBand(x.q)}" title="usage percentile among ${G[x.g] || 'his position'}">${ordn(x.q)} pct</span>` : ''}`).join(' · ') : '<span class="muted">none</span>';
+      return `<h3>Usage <span class="muted small">· players with ${need}+ of ${t.games} games (40%) and 15+ min/game</span></h3>
+      <p><b>Usage 20%+ (${hi.length}):</b> ${li(hi)}</p>
+      <p><b>Usage 15–20% (${mid.length}):</b> ${li(mid)}</p>`; })()}
     <h3>Players by grade</h3>
-    <p class="lede">Each player's season grade is his minutes-weighted average game score (games with ${10}+ minutes); click a player for every game. <b>Prod</b> grades his season PER against a typical rotation player and his own past, plus a bonus when he beats what this team got last season from his position and starter/bench slot (never a penalty); PER 30+ at 25+ min/game is an A+. Hover a Prod grade for how it was computed.</p>
-    <div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">Score</th><th>Grade</th><th>Off</th><th>Def</th><th class="num">PER</th><th title="${prodTip}">Prod</th></tr></thead><tbody>
-      ${t.players.map((p, i) => `<tr class="link" data-href="#splayer/${p.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td><td class="num">${p.games}</td><td class="num">${p.mpg}</td><td class="num">${p.score == null ? '–' : sgn(p.score, 1)}</td><td>${gradePill(p.grade)}</td><td>${gradePill(p.off_grade)}</td><td>${gradePill(p.def_grade)}</td><td class="num">${p.per == null ? '–' : p.per.toFixed(1)}</td><td>${prodCell(p.prod_grade, p.prod_parts, p.prod_score)}</td></tr>`).join('')}</tbody></table></div>`;
+    <p class="lede">Each player's season grade is his minutes-weighted average game score (games with ${10}+ minutes); click a player for every game, or a column to sort (Fantasy sorts by Basketball Monster rank). <b>Prod</b> grades his season PER against a typical rotation player and his own past, plus a bonus when he beats what this team got last season from his position and starter/bench slot (never a penalty); PER 30+ at 25+ min/game is an A+. Hover a Prod grade for how it was computed.</p>
+    <div class="table-wrap"><table class="grade-table"><thead><tr><th>#</th><th>Player</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">Score</th><th>Grade</th><th>Off</th><th>Def</th><th class="num">PER</th><th title="${prodTip}">Prod</th><th class="num" title="Basketball Monster rank this season and its 12-team round.pick">Fantasy</th></tr></thead><tbody>
+      ${t.players.map((p, i) => `<tr class="link" data-href="#splayer/${p.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td><td class="num">${p.games}</td><td class="num">${p.mpg}</td><td class="num">${p.score == null ? '–' : sgn(p.score, 1)}</td><td data-v="${p.score ?? ''}">${gradePill(p.grade)}</td><td data-v="${p.off_score ?? ''}">${gradePill(p.off_grade)}</td><td data-v="${p.def_score ?? ''}">${gradePill(p.def_grade)}</td><td class="num">${p.per == null ? '–' : p.per.toFixed(1)}</td><td data-v="${p.prod_score ?? ''}">${prodCell(p.prod_grade, p.prod_parts, p.prod_score)}</td>${fantCell(FANT && FANT[p.pid] && FANT[p.pid].cur)}</tr>`).join('')}</tbody></table></div>`;
+  sortableTables(view, '.grade-table');
   bindTeamSelect(view);
   bindRowLinks(view);
 }
