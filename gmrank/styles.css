@@ -284,3 +284,13 @@ span.sv-elite, span.sv-good, span.sv-mid, span.sv-poor, span.sv-zero, b.sv-elite
 .per-line { margin: 6px 0 10px; }
 .per-line summary { cursor: pointer; }
 .has-tip { cursor: help; }
+tr.usg-good > td { background: color-mix(in srgb, var(--sv-good) 55%, transparent); }
+tr.usg-bad > td { background: color-mix(in srgb, var(--sv-poor) 55%, transparent); }
+.freeze-wrap { max-height: 80vh; overflow: auto; }
+.freeze-wrap td.frozen { white-space: nowrap; }
+.freeze-wrap thead th { z-index: 2; }
+.freeze-wrap .frozen { position: sticky; z-index: 1; background: var(--surface); }
+.freeze-wrap thead th.frozen { z-index: 3; background: var(--surface-2); }
+.freeze-wrap .frozen-last { box-shadow: inset -1px 0 0 var(--line); }
+.freeze-wrap tbody tr:hover .frozen { background: var(--surface-2); }
+@media (max-width: 700px) { .freeze-wrap tr > .frozen:nth-child(n+3) { position: static; } .freeze-wrap tr > .frozen:nth-child(2) { box-shadow: inset -1px 0 0 var(--line); } }

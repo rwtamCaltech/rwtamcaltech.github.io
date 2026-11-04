@@ -793,10 +793,14 @@ async function renderSeason(team) {
       <div class="toolbar">${teamSelect(Z)} <span class="small muted">Updated ${esc(Z.updated.replace('T', ' '))} · ${Z.games.length} games</span></div>
       <h3>Teams by coach score (over / under expectation)</h3>
       <p class="small muted">Click a column to sort. Fantasy: <a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a> 9-cat ranks; round.pick in a 12-team league (2.08 = round 2, pick 8).</p>
-      <div class="table-wrap"><table class="season-teams"><thead><tr><th>#</th><th>Team</th><th>Coach</th><th class="num">Record</th><th class="num">Coach score</th><th class="num">Per game</th><th class="num">Injury score</th><th class="hide-sm">Top grade</th><th title="His best player by Basketball Monster rank this season (12-team round.pick), with BBM value and fantasy points per game">Top fantasy</th><th class="num" title="Players ranked in the top 5 rounds of a 12-team league (top 60)">Top 5 rds</th><th class="num" title="Players ranked in the top 10 rounds (top 120)">Top 10 rds</th><th class="num" title="Usage mix: players at 20%+ usage - players at 15-20% (40%+ of the team's games, 15+ min/game); hover for names">Usage 20+ / 15–20</th></tr></thead><tbody>
+      <div class="table-wrap"><table class="season-teams"><thead><tr><th>#</th><th>Team</th><th>Coach</th><th class="num">Record</th><th class="num">Coach score</th><th class="num">Per game</th><th class="num">Injury score</th><th class="hide-sm">Top grade</th><th title="His best player by Basketball Monster rank this season (12-team round.pick), with BBM value and fantasy points per game">Top fantasy</th><th class="num" title="Players ranked in the top 5 rounds of a 12-team league (top 60)">Top 5 rds</th><th class="num" title="Players ranked in the top 10 rounds (top 120)">Top 10 rds</th><th class="num" title="Usage down top 50: grading B- or better">Thriving smaller</th><th class="num" title="Usage down top 50: grading C or worse">Fading</th><th class="num" title="Usage up top 50: grading B or better">Rising</th><th class="num" title="Usage up top 50: grading C or worse">Biting off more</th><th class="num" title="Usage mix: players at 20%+ usage - players at 15-20% (40%+ of the team's games, 15+ min/game); hover for names">Usage 20+ / 15–20</th></tr></thead><tbody>
       ${(() => {   // usage-mix color: percentile of (20%+ players + half the 15-20% players) across teams; more spread = greener
         const sc = t => { const u = usageTiers(t); return u.hi.length + 0.5 * u.mid.length; };
         const all = Z.teams.filter(t => t.games).map(sc);
+        const mv = {};   // team -> verdict -> players, from the usage down / up top-50 lists
+        [false, true].forEach(up => usgMovers(Z, up).forEach(x => { const v = usgVerdict(x.p.grade, up); if (!v.cls) return;
+          const k = (up ? 'up_' : 'down_') + v.cls; ((mv[x.p.team] = mv[x.p.team] || {})[k] = mv[x.p.team][k] || []).push(x); }));
+        Z._mv = (t, k) => (mv[t.team] || {})[k] || [];
         Z._usgPct = t => { const v = sc(t); return Math.round(100 * (all.filter(x => x < v).length + 0.5 * all.filter(x => x === v).length) / all.length); };
         return ''; })()}
       ${Z.teams.filter(t => t.games).map(t => { const ft = fantTeam(t), ut = usageTiers(t); return `<tr class="link" data-href="#season/${t.team}"><td class="rank">${t.coach_rank}</td>
@@ -805,6 +809,8 @@ async function renderSeason(team) {
         <td class="num">${t.injury_score.toFixed(1)}</td><td class="hide-sm">${t.players[0] ? `<a href="#splayer/${t.players[0].pid}">${esc(t.players[0].name)}</a> ${gradePill(t.players[0].grade)}` : ''}</td>
         <td data-v="${ft.top ? ft.top.f.rank : ''}">${ft.top ? `<a href="#splayer/${ft.top.p.pid}">${esc(ft.top.p.name)}</a> <b>${fRound(ft.top.f.rank)}</b> <span class="muted small">#${ft.top.f.rank} · ${sgn(ft.top.f.value, 2)}${ft.top.p.fp != null ? ` · ${ft.top.p.fp} FP/g` : ''}</span>` : '–'}</td>
         <td class="num has-tip" title="${fantTip(ft.r5)}">${ft.r5.length}</td><td class="num has-tip" title="${fantTip(ft.r10)}">${ft.r10.length}</td>
+        ${['down_good', 'down_bad', 'up_good', 'up_bad'].map(k => { const L = Z._mv(t, k);
+          return `<td class="num${L.length ? ` has-tip ${k.endsWith('good') ? 'pos' : 'neg'}` : ''}" title="${L.length ? tipEsc(L.map(x => `${x.p.name}: usage ${sgn(x.d, 1)}, grade ${x.p.grade}`).join('\n')).replace(/\n/g, '&#10;') : 'none'}">${L.length}</td>`; }).join('')}
         <td class="num" data-v="${ut.hi.length + ut.mid.length / 10}"><span class="has-tip ${usgMixBand(Z._usgPct(t))}" title="${tipEsc(`20%+: ${ut.hi.map(x => `${x.p.name} ${x.u.toFixed(1)}`).join(', ') || 'none'}\n15-20%: ${ut.mid.map(x => `${x.p.name} ${x.u.toFixed(1)}`).join(', ') || 'none'}`).replace(/\n/g, '&#10;')}">${ut.hi.length}-${ut.mid.length}</span></td></tr>`; }).join('')}</tbody></table></div>
       <h3>Injury score (most injured first)</h3>
       <p class="lede">What each team's absent rotation players (projected 12+ min/game) would have added over a replacement-level fill-in, added up over every game (points per 100).</p>
@@ -812,16 +818,18 @@ async function renderSeason(team) {
       ${[...Z.teams].filter(t => t.games).sort((a, b) => a.injury_rank - b.injury_rank).map(t => `<tr class="link" data-href="#season/${t.team}"><td class="rank">${t.injury_rank}</td>
         <td class="name"><span class="team-tag">${t.team}</span><a href="#season/${t.team}">${esc(t.team_name)}</a></td>
         <td class="num strong">${t.injury_score.toFixed(1)}</td><td class="num">${(t.injury_score / t.games).toFixed(2)}</td><td class="num">${t.w}-${t.l}</td></tr>`).join('')}</tbody></table></div>
-      <h3>Top players this season</h3>
-      <div class="toolbar"><div class="seg" id="top-seg"><button data-k="score" class="on">Top ${(Z.top_players || []).length} by season score</button><button data-k="off">Top ${(Z.top_off || []).length} by offense</button><button data-k="def">Top ${(Z.top_def || []).length} by defense</button></div></div>
-      <p class="lede">Minutes-weighted average grade score (or offense / defense score) over every graded game this season (10+ minutes)${Z.top_min_games > 1 ? `; at least ${Z.top_min_games} graded games` : ''}.</p>
+      <h3>Leaderboards: top 50</h3>
+      <div class="toolbar"><div class="seg" id="top-seg"><button data-k="score" class="on">Season score</button><button data-k="off">Offense</button><button data-k="def">Defense</button><button data-k="prod">Production</button><button data-k="usg_down">Usage down</button><button data-k="usg_up">Usage up</button></div></div>
+      <p class="lede" id="top-lede">${topLede(Z, 'score')}</p>
       <div id="top-table">${topTable(Z, 'score')}</div>
       <h3>Games</h3>${gamesTable(Z.games)}`;
     sortableTables(view, '.season-teams');
+    freezeCols(view.querySelector('table.season-teams'), 4);
     view.querySelectorAll('#top-seg button').forEach(b => b.addEventListener('click', () => {
       view.querySelectorAll('#top-seg button').forEach(x => x.classList.toggle('on', x === b));
       const box = view.querySelector('#top-table');
       box.innerHTML = topTable(Z, b.dataset.k);
+      view.querySelector('#top-lede').innerHTML = topLede(Z, b.dataset.k);
       bindRowLinks(box);
     }));
     bindTeamSelect(view);
@@ -861,10 +869,51 @@ async function renderSeason(team) {
   bindTeamSelect(view);
   bindRowLinks(view);
 }
-function topTable(Z, k) {   // the top-50 table sorted by season, offense or defense score
-  const L = (k === 'off' ? Z.top_off : k === 'def' ? Z.top_def : Z.top_players) || [];
-  const sc = p => k === 'off' ? p.off_score : k === 'def' ? p.def_score : p.score;
-  return `<div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">${k === 'off' ? 'Off score' : k === 'def' ? 'Def score' : 'Score'}</th><th>Grade</th><th>Off</th><th>Def</th><th class="num">PER</th><th title="${prodTip}">Prod</th></tr></thead><tbody>
+function topLede(Z, k) {
+  const g = Z.top_min_games > 1 ? `; at least ${Z.top_min_games} graded games` : '';
+  if (k === 'prod') return `Season production score: PER against a typical rotation player and his own last three seasons, plus the upside-only bonus over last season's slot (hover a Prod grade for its parts)${g}, and 40%+ of his team's games so far.`;
+  if (k === 'usg_down' || k === 'usg_up') return `This season's usage (<a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a>) against his average over the last three seasons (games-weighted, seasons with 10+ games), ${k === 'usg_down' ? 'biggest drops first: players whose roles have shrunk. Green rows grade B− or better (doing more with less), red rows C or worse' : 'biggest gains first: players taking on more responsibility. Green rows grade B or better (rising to the occasion), red rows C or worse (biting off more than they can chew)'}. Counts players with 40%+ of their team's games so far and 15+ min/game, and at least one past season.`;
+  return `Minutes-weighted average ${k === 'off' ? 'offense' : k === 'def' ? 'defense' : 'grade'} score over every graded game this season (10+ minutes)${g}.`;
+}
+const GRADE_ORDER = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'F'];
+const gAtLeast = (g, min) => GRADE_ORDER.indexOf(g) >= 0 && GRADE_ORDER.indexOf(g) <= GRADE_ORDER.indexOf(min);
+// usage movers: green = thriving in the new role, red = struggling (usage down: B- or better / C or worse; usage up: B or better / C or worse)
+function usgVerdict(g, up) {
+  if (gAtLeast(g, up ? 'B' : 'B-')) return { cls: 'good', tag: up ? 'Rising to the occasion' : 'Thriving in a smaller role' };
+  if (g && !gAtLeast(g, 'C+') && g !== 'N/A') return { cls: 'bad', tag: up ? 'Biting off more than he can chew' : 'Fading with less of the ball' };
+  return { cls: '', tag: '' };
+}
+function usgBlurb(Z, up) {
+  const L = usgMovers(Z, up).map(x => ({ ...x, v: usgVerdict(x.p.grade, up) }));
+  const G = L.filter(x => x.v.cls === 'good'), B = L.filter(x => x.v.cls === 'bad');
+  const names = X => X.slice(0, 6).map(x => `<a href="#splayer/${x.p.pid}">${esc(x.p.name)}</a> (${sgn(x.d, 1)}, ${x.p.grade})`).join(', ') + (X.length > 6 ? ` and ${X.length - 6} more` : '');
+  return up
+    ? `<p><span class="pill good">Rising to the occasion</span> <b>${G.length}</b> of ${L.length} players with bigger roles are grading B or better: taking on more and producing, the alpha step${G.length ? `: ${names(G)}` : ''}.</p>
+       <p><span class="pill bad">Biting off more than he can chew</span> <b>${B.length}</b> are grading C or worse with the extra load${B.length ? `: ${names(B)}` : ''}. More shots and touches, but the results haven't followed yet.</p>`
+    : `<p><span class="pill good">Thriving in a smaller role</span> <b>${G.length}</b> of ${L.length} players with less of the ball are grading B− or better, doing more with less: a cleaner fit beside new teammates, or a smart role change${G.length ? `: ${names(G)}` : ''}.</p>
+       <p><span class="pill bad">Fading with less of the ball</span> <b>${B.length}</b> are grading C or worse: squeezed out or slipping${B.length ? `: ${names(B)}` : ''}.</p>`;
+}
+function usgMovers(Z, up) {   // this season's usage vs his 3-season average, for players with real roles so far
+  const tg = Object.fromEntries(Z.teams.map(t => [t.team, t.games || 0]));
+  return Z.teams.flatMap(t => t.players).map(p => { const F = FANT && FANT[p.pid]; const c = F && F.cur;
+    if (!c || c.usg == null || F.usg3 == null || p.games < Math.max(1, Math.ceil(0.4 * (tg[p.team] || 0))) || p.mpg < 15) return null;
+    return { p, F, d: c.usg - F.usg3 }; }).filter(Boolean).sort((a, b) => up ? b.d - a.d : a.d - b.d).slice(0, 50);
+}
+function topTable(Z, k) {   // the top-50 tables: season, offense, defense or production score; usage movers
+  if (k === 'usg_down' || k === 'usg_up') {
+    const G = { guard: 'guards', wing: 'wings', big: 'bigs' };
+    return `${usgBlurb(Z, k === 'usg_up')}<div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">Usage now</th><th class="num">3-season avg</th><th class="num">Change</th><th class="num">PER</th><th title="${prodTip}">Prod</th><th>Grade</th><th>Read</th></tr></thead><tbody>
+      ${usgMovers(Z, k === 'usg_up').map((x, i) => { const c = x.F.cur, p = x.p, v = usgVerdict(p.grade, k === 'usg_up'); return `<tr class="link usg-${v.cls || 'mid'}" data-href="#splayer/${p.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td>
+        <td><span class="team-tag">${p.team}</span></td><td class="num">${p.games}</td><td class="num">${p.mpg}</td>
+        <td class="num">${c.usg.toFixed(1)}%${c.usg_pct != null ? ` <span class="pill ${usgBand(c.usg_pct)}" title="percentile among ${G[c.grp] || 'his position'}">${ordn(c.usg_pct)}</span>` : ''}</td>
+        <td class="num" title="${(x.F.avg3_seasons || []).map(seasonLabel).join(', ')}">${x.F.usg3.toFixed(1)}%${x.F.usg3_pct != null ? ` <span class="pill ${usgBand(x.F.usg3_pct)}">${ordn(x.F.usg3_pct)}</span>` : ''}</td>
+        <td class="num strong ${x.d >= 0 ? 'pos' : 'neg'}">${sgn(x.d, 1)}</td><td class="num">${p.per == null ? '–' : p.per.toFixed(1)}</td><td>${prodCell(p.prod_grade, p.prod_parts, p.prod_score)}</td><td>${gradePill(p.grade)}</td><td>${v.tag ? `<span class="pill ${v.cls}">${v.tag}</span>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+  }
+  const tg = Object.fromEntries(Z.teams.map(t => [t.team, t.games || 0]));
+  const L = k === 'prod' ? Z.teams.flatMap(t => t.players).filter(p => p.prod_score != null && p.graded >= (Z.top_min_games || 1) && p.games >= Math.ceil(0.4 * (tg[p.team] || 0))).sort((a, b) => b.prod_score - a.prod_score).slice(0, 50)
+    : (k === 'off' ? Z.top_off : k === 'def' ? Z.top_def : Z.top_players) || [];
+  const sc = p => k === 'off' ? p.off_score : k === 'def' ? p.def_score : k === 'prod' ? p.prod_score : p.score;
+  return `<div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">${k === 'off' ? 'Off score' : k === 'def' ? 'Def score' : k === 'prod' ? 'Prod score' : 'Score'}</th><th>Grade</th><th>Off</th><th>Def</th><th class="num">PER</th><th title="${prodTip}">Prod</th></tr></thead><tbody>
       ${L.map((p, i) => `<tr class="link" data-href="#splayer/${p.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td>
         <td><span class="team-tag">${p.team}</span></td><td class="num">${p.graded}</td><td class="num">${p.mpg}</td><td class="num strong">${sgn(sc(p), 1)}</td><td>${gradePill(p.grade)}</td><td>${gradePill(p.off_grade)}</td><td>${gradePill(p.def_grade)}</td><td class="num">${p.per == null ? '–' : p.per.toFixed(1)}</td><td>${prodCell(p.prod_grade, p.prod_parts, p.prod_score)}</td></tr>`).join('')}</tbody></table></div>`;
 }
@@ -1282,6 +1331,26 @@ async function renderReranks(view, I, sub) {
   sortableTables(view, '.draft-table');
   bindDraftView(view);
   view.querySelector('#rr-year').addEventListener('change', e => { location.hash = `#drafts/reranks/${e.target.value}`; });
+}
+function freezeCols(t, n) {   // keep the first n columns (and the header row) in place while the table scrolls
+  if (!t) return;
+  t.parentElement.classList.add('freeze-wrap');
+  const set = () => {
+    const head = t.tHead.rows[0];
+    for (let c = 0; c < n; c++) t.querySelectorAll(`tr > :nth-child(${c + 1})`).forEach(el => { el.classList.add('frozen'); el.classList.toggle('frozen-last', c === n - 1); });
+    let x = 0;
+    for (let c = 0; c < n; c++) {   // measure after no-wrap applies, then pin each column after the ones before it
+      const w = head.cells[c].getBoundingClientRect().width;
+      t.querySelectorAll(`tr > :nth-child(${c + 1})`).forEach(el => { el.style.left = `${x}px`; });
+      x += w;
+    }
+  };
+  const fit = () => {   // the scroll box fits below the site's sticky top bar, so the frozen header row stays visible
+    const bar = document.querySelector('header.top');
+    t.parentElement.style.maxHeight = `${Math.max(300, innerHeight - (bar ? bar.offsetHeight : 0) - 16)}px`;
+  };
+  set(); fit();
+  addEventListener('resize', () => { set(); fit(); }, { passive: true });
 }
 function sortableTables(root, sel) {
   const key = td => {
