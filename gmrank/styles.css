@@ -283,3 +283,4 @@ span.sv-elite, span.sv-good, span.sv-mid, span.sv-poor, span.sv-zero, b.sv-elite
 .role-line b { font-size: 1.15em; }
 .per-line { margin: 6px 0 10px; }
 .per-line summary { cursor: pointer; }
+.has-tip { cursor: help; }
