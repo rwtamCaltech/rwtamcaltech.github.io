@@ -779,6 +779,53 @@ function bindTeamSelect(view) {
   const sel = view.querySelector('#season-team');
   if (sel) sel.addEventListener('change', () => { location.hash = sel.value ? `#season/${sel.value}` : '#season'; });
 }
+function pageRows(table, n) {   // show n body rows at a time, with ← → under the table
+  if (!table) return;
+  const rows = [...table.tBodies[0].rows]; if (rows.length <= n) return;
+  const nav = document.createElement('div'); nav.className = 'pager';
+  table.closest('.table-wrap').after(nav);
+  let pg = 0; const pages = Math.ceil(rows.length / n);
+  const show = () => { rows.forEach((r, i) => { r.hidden = Math.floor(i / n) !== pg; });
+    nav.innerHTML = `<button type="button" data-d="-1" ${pg ? '' : 'disabled'} aria-label="Previous ${n}">←</button> <span class="small">${pg * n + 1}–${Math.min(rows.length, pg * n + n)} of ${rows.length}</span> <button type="button" data-d="1" ${pg < pages - 1 ? '' : 'disabled'} aria-label="Next ${n}">→</button>`; };
+  nav.addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.disabled) return; pg += +b.dataset.d; show(); });
+  show();
+}
+// stat leaderboards (top 20 per category), from season.json stat_leaders
+const STAT_KIND = { per40: 'Per 40 minutes', pg: 'Per game', pct: 'Shooting' };
+function statTable(Z, k) {
+  const L = (Z.stat_leaders || {})[k] || [], c = (Z.stat_meta.cats || []).find(x => x.key === k) || {};
+  const pct = c.kind === 'pct';
+  return `<div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Games</th><th class="num">Min / game</th>${pct ? '<th class="num">Attempts / game</th>' : ''}<th class="num">${esc(c.label || k)}</th></tr></thead><tbody>
+    ${L.map((x, i) => `<tr class="link" data-href="#splayer/${x.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${x.pid}">${esc(x.name)}</a></td><td><span class="team-tag">${x.team}</span></td><td class="num">${x.g}</td><td class="num">${x.mpg}</td>${pct ? `<td class="num">${x.att}</td>` : ''}<td class="num strong">${x.val.toFixed(1)}${pct ? '%' : ''}</td></tr>`).join('')}</tbody></table></div>`;
+}
+function statSection(Z) {
+  if (!Z.stat_leaders || !Z.stat_meta) return '';
+  const M = Z.stat_meta, first = M.cats[0].key;
+  return `<h3>Stat leaders: top 20</h3>
+    <p class="lede">Players with ${Math.round(100 * M.games)}%+ of their team's games so far and ${M.mpg}+ min/game (${M.qualified} qualify). Shooting percentages also need attempts per game: 6+ field-goal attempts for FG% and true shooting, 3+ three-point attempts for 3P%, 2+ free-throw attempts for FT%.</p>
+    ${Object.entries(STAT_KIND).map(([kd, lab]) => `<div class="toolbar"><span class="small muted stat-kind">${lab}</span><div class="seg stat-seg">${M.cats.filter(c => c.kind === kd).map(c => `<button data-k="${c.key}" class="${c.key === first ? 'on' : ''}">${esc(c.label.replace(/ per (40|game)$/, ''))}</button>`).join('')}</div></div>`).join('')}
+    <div id="stat-table">${statTable(Z, first)}</div>`;
+}
+function bindStatSection(view, Z) {
+  view.querySelectorAll('.stat-seg button').forEach(b => b.addEventListener('click', () => {
+    view.querySelectorAll('.stat-seg button').forEach(x => x.classList.toggle('on', x === b));
+    const box = view.querySelector('#stat-table'); box.innerHTML = statTable(Z, b.dataset.k); bindRowLinks(box);
+  }));
+}
+// a player's top-20 stat ranks for his page
+function statRanks(p) {
+  const R = p.stat_ranks || [], M = S._season && S._season.stat_meta; if (!M) return '';
+  if (!R.length) {   // nothing to list: say whether he qualifies at all
+    const tm = (S._season.teams || []).find(t => t.team === p.team), need = Math.max(1, Math.ceil(M.games * ((tm && tm.games) || 0)));
+    const why = [p.games < need ? `${p.games} of the ${need}+ games needed (${Math.round(100 * M.games)}% of his team's)` : '', p.mpg < M.mpg ? `${p.mpg} min/game, under ${M.mpg}` : ''].filter(Boolean);
+    return `<h3>Stat ranks</h3><p class="muted">${why.length ? `Not qualified: ${why.join('; ')}.` : 'Nothing in the top 20 this season.'} <a href="#season">Stat leaders →</a></p>`;
+  }
+  const lab = Object.fromEntries(M.cats.map(c => [c.key, c])), by = {};
+  R.forEach(r => { const c = lab[r.cat]; if (c) (by[c.kind] = by[c.kind] || []).push({ ...r, c }); });
+  return `<h3>Stat ranks <span class="muted small">· top 20 this season among qualified players (${Math.round(100 * M.games)}%+ of team games, ${M.mpg}+ min/game; shooting needs enough attempts)</span></h3>
+    ${Object.entries(STAT_KIND).filter(([kd]) => by[kd]).map(([kd, l]) => `<p><b>${l}:</b> ${by[kd].sort((a, b) => a.rank - b.rank).map(r => `<span class="stat-rank"><span class="pill ${r.rank <= 5 ? 'sv-elite' : r.rank <= 10 ? 'sv-good' : 'sv-mid'}">#${r.rank}</span> ${esc(r.c.label.replace(/ per (40|game)$/, ''))} <span class="muted small">${r.val.toFixed(1)}${kd === 'pct' ? '%' : ''}, of ${r.of}</span></span>`).join(' · ')}</p>`).join('')}
+    <p class="small"><a href="#season">All stat leaders →</a></p>`;
+}
 function gamesTable(games, team) {
   let run = 0;
   const tally = {};
@@ -842,7 +889,7 @@ async function renderSeason(team) {
         <td class="name"><span class="team-tag">${t.team}</span><a href="#season/${t.team}">${esc(t.team_name)}</a></td>
         <td class="num strong">${t.injury_score.toFixed(1)}</td><td class="num">${(t.injury_score / t.games).toFixed(2)}</td><td class="num">${t.w}-${t.l}</td></tr>`).join('')}</tbody></table></div>
       <h3>Leaderboards: top 50</h3>
-      <div class="toolbar"><div class="seg" id="top-seg"><button data-k="score" class="on">Season score</button><button data-k="off">Offense</button><button data-k="def">Defense</button><button data-k="usg_down">Usage down</button><button data-k="usg_up">Usage up</button></div></div>
+      <div class="toolbar"><div class="seg" id="top-seg"><button data-k="score" class="on">Season score</button><button data-k="off">Offense</button><button data-k="def">Defense</button><button data-k="off_bot">Bottom 50 offense</button><button data-k="def_bot">Bottom 50 defense</button><button data-k="usg_down">Usage down</button><button data-k="usg_up">Usage up</button></div></div>
       <p class="lede" id="top-lede">${topLede(Z, 'score')}</p>
       <div id="top-table">${topTable(Z, 'score')}</div>
       <h3>Usage movers by team</h3>
@@ -850,7 +897,11 @@ async function renderSeason(team) {
       <div class="table-wrap"><table class="movers-table"><thead><tr><th>Team</th>${MOVER_ROWS.map(([, c, tag]) => `<th><span class="pill ${c}">${tag}</span></th>`).join('')}</tr></thead><tbody>
         ${Z.teams.filter(t => t.games).map(t => [t, teamMovers(Z, t.team)]).filter(([, M]) => MOVER_ROWS.some(([k]) => M[k].length)).map(([t, M]) => `<tr><td class="name nowrap"><span class="team-tag">${t.team}</span><a href="#season/${t.team}">${esc(t.team_name)}</a></td>
           ${MOVER_ROWS.map(([k]) => `<td class="small">${M[k].length ? moverLi(M[k]).replace(/ · /g, '<br>') : '<span class="muted">–</span>'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
-      <h3>Games</h3>${gamesTable(Z.games)}`;
+      ${statSection(Z)}
+      <h3>Games</h3><div id="games-league">${gamesTable(Z.games)}</div>`;
+    bindStatSection(view, Z);
+    pageRows(view.querySelector('#games-league table'), 20);
+    pageRows(view.querySelector('table.movers-table'), 5);
     sortableTables(view, '.season-teams');
     freezeCols(view.querySelector('table.season-teams'), 4);
     view.querySelectorAll('#top-seg button').forEach(b => b.addEventListener('click', () => {
@@ -892,9 +943,12 @@ async function renderSeason(team) {
     ${moverSection(Z, team)}
     <h3>Players by grade</h3>
     <p class="lede">Each player's season grade is his minutes-weighted average game score (games with ${5}+ minutes), graded on a curve against every player this season (A+ top 3%, A range top 13%, B− or better top 48%, D or F bottom 15%; box scores are curved against every graded game); click a player for every game, or a column to sort (Fantasy sorts by Basketball Monster rank). Each game score is 70% impact (box score, against his expectation, plus-minus, counterparts) and 30% production (game PER against a typical rotation player, his own last three seasons and, upside only, what this team got last season from his position and starter/bench slot); an otherworldly line (PER 30+ over 25+ minutes or 60+ fantasy points) is an A+. Hover a game's Grade on his page for every part.</p>
+    <label class="small"><input type="checkbox" id="show-all-p"> Show players averaging 5 or fewer minutes (${t.players.filter(p => p.mpg <= 5).length} hidden)</label>
     <div class="table-wrap"><table class="grade-table"><thead><tr><th>#</th><th>Player</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">Score</th><th>Grade</th><th>Off</th><th>Def</th><th class="num">PER</th><th class="num" title="Basketball Monster rank this season and its 12-team round.pick">Fantasy</th></tr></thead><tbody>
-      ${t.players.map((p, i) => `<tr class="link" data-href="#splayer/${p.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td><td class="num">${p.games}</td><td class="num">${p.mpg}</td><td class="num">${p.score == null ? '–' : sgn(p.score, 1)}</td><td data-v="${p.score ?? ''}" class="has-tip" title="${seasonTip(p, 'grade')}">${gradePill(p.grade)}</td><td data-v="${p.off_score ?? ''}" class="has-tip" title="${seasonTip(p, 'off_grade')}">${gradePill(p.off_grade)}</td><td data-v="${p.def_score ?? ''}" class="has-tip" title="${seasonTip(p, 'def_grade')}">${gradePill(p.def_grade)}</td><td class="num">${p.per == null ? '–' : p.per.toFixed(1)}</td>${fantCell(FANT && FANT[p.pid] && FANT[p.pid].cur)}</tr>`).join('')}</tbody></table></div>`;
+      ${t.players.map((p, i) => `<tr class="link${p.mpg <= 5 ? ' low-min' : ''}" data-href="#splayer/${p.pid}"${p.mpg <= 5 ? ' hidden' : ''}><td class="rank">${i + 1}</td><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td><td class="num">${p.games}</td><td class="num">${p.mpg}</td><td class="num">${p.score == null ? '–' : sgn(p.score, 1)}</td><td data-v="${p.score ?? ''}" class="has-tip" title="${seasonTip(p, 'grade')}">${gradePill(p.grade)}</td><td data-v="${p.off_score ?? ''}" class="has-tip" title="${seasonTip(p, 'off_grade')}">${gradePill(p.off_grade)}</td><td data-v="${p.def_score ?? ''}" class="has-tip" title="${seasonTip(p, 'def_grade')}">${gradePill(p.def_grade)}</td><td class="num">${p.per == null ? '–' : p.per.toFixed(1)}</td>${fantCell(FANT && FANT[p.pid] && FANT[p.pid].cur)}</tr>`).join('')}</tbody></table></div>`;
   sortableTables(view, '.grade-table');
+  const sa = view.querySelector('#show-all-p');
+  if (sa) sa.addEventListener('change', () => view.querySelectorAll('tr.low-min').forEach(r => { r.hidden = !sa.checked; }));
   bindTeamSelect(view);
   bindRowLinks(view);
 }
@@ -902,6 +956,7 @@ function topLede(Z, k) {
   const g = Z.top_min_games > 1 ? `; at least ${Z.top_min_games} graded games` : '';
   if (k === 'prod') return `Season production score: PER against a typical rotation player and his own last three seasons, plus the upside-only bonus over last season's slot (hover a Prod grade for its parts)${g}, and 40%+ of his team's games so far.`;
   if (k === 'usg_down' || k === 'usg_up') return `This season's usage (<a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a>) against his average over the last three seasons (games-weighted, seasons with 10+ games), ${k === 'usg_down' ? 'biggest drops first: players whose roles have shrunk. Green rows grade B− or better (doing more with less), red rows C or worse' : 'biggest gains first: players taking on more responsibility. Green rows grade B or better (rising to the occasion), red rows C or worse (biting off more than they can chew)'}. Counts players with 40%+ of their team's games so far and 15+ min/game, and at least one past season.`;
+  if (k === 'off_bot' || k === 'def_bot') return `The 50 lowest minutes-weighted average ${k === 'off_bot' ? 'offense' : 'defense'} scores this season, worst first (5+ minute games)${g}.`;
   return `Minutes-weighted average ${k === 'off' ? 'offense' : k === 'def' ? 'defense' : 'grade'} score over every graded game this season (5+ minutes)${g}.`;
 }
 const GRADE_ORDER = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'F'];
@@ -956,9 +1011,9 @@ function topTable(Z, k) {   // the top-50 tables: season, offense, defense or pr
   }
   const tg = Object.fromEntries(Z.teams.map(t => [t.team, t.games || 0]));
   const L = k === 'prod' ? Z.teams.flatMap(t => t.players).filter(p => p.prod_score != null && p.graded >= (Z.top_min_games || 1) && p.games >= Math.ceil(0.4 * (tg[p.team] || 0))).sort((a, b) => b.prod_score - a.prod_score).slice(0, 50)
-    : (k === 'off' ? Z.top_off : k === 'def' ? Z.top_def : Z.top_players) || [];
-  const sc = p => k === 'off' ? p.off_score : k === 'def' ? p.def_score : k === 'prod' ? p.prod_score : p.score;
-  return `<div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">${k === 'off' ? 'Off score' : k === 'def' ? 'Def score' : k === 'prod' ? 'Prod score' : 'Score'}</th><th>Grade</th><th>Off</th><th>Def</th><th class="num">PER</th></tr></thead><tbody>
+    : (k === 'off' ? Z.top_off : k === 'def' ? Z.top_def : k === 'off_bot' ? Z.bottom_off : k === 'def_bot' ? Z.bottom_def : Z.top_players) || [];
+  const sc = p => k.startsWith('off') ? p.off_score : k.startsWith('def') ? p.def_score : k === 'prod' ? p.prod_score : p.score;
+  return `<div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">${k.startsWith('off') ? 'Off score' : k.startsWith('def') ? 'Def score' : 'Score'}</th><th>Grade</th><th>Off</th><th>Def</th><th class="num">PER</th></tr></thead><tbody>
       ${L.map((p, i) => `<tr class="link" data-href="#splayer/${p.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td>
         <td><span class="team-tag">${p.team}</span></td><td class="num">${p.graded}</td><td class="num">${p.mpg}</td><td class="num strong">${sgn(sc(p), 1)}</td><td>${gradePill(p.grade)}</td><td>${gradePill(p.off_grade)}</td><td>${gradePill(p.def_grade)}</td><td class="num">${p.per == null ? '–' : p.per.toFixed(1)}</td></tr>`).join('')}</tbody></table></div>`;
 }
@@ -1017,7 +1072,7 @@ const optTxt = o => ({ PO: 'player option', TO: 'team option', ETO: 'early termi
 const salaryLine = pid => { const r = pid && SALBY[pid]; if (!r) return '';
   if (!r.contract) return `<p class="age-line">${r.tw ? 'Two-way contract' : 'No standard contract on file'}</p>`;
   const c = r.contract, opts = c.options.map(o => `${seasonLabel(o.season)} ${optTxt(o.option)}${o.decision ? ` (${o.decision})` : ''}`);
-  return `<p class="age-line">${money(c.salary)} this season (${c.share}% of the cap) · ${c.years_left} year${c.years_left === 1 ? '' : 's'} left, ${money(c.total_money)} total${opts.length ? ` · ${esc(opts.join(', '))}` : ''} · ${salPill(c.label)} ${c.tag !== 'Fair deal' ? salPill(c.tag) : ''} ${chipPill(c)}${c.free_agent && !c.expiring ? ` <span class="muted small">free agent after ${seasonLabel(SAL.season)}</span>` : ''}</p>`; };
+  return `<p class="age-line">${money(c.salary)} this season (${c.share}% of the cap) · ${c.years_left} year${c.years_left === 1 ? '' : 's'} left, ${money(c.total_money)} total${opts.length ? ` · ${esc(opts.join(', '))}` : ''} · <span class="small muted">This season:</span> ${salPill(c.label)}${c.tag ? ` · <span class="small muted">Whole contract:</span> ${salPill(c.tag)}` : ''} ${chipPill(c)}${c.free_agent && !c.expiring ? ` <span class="muted small">free agent after ${seasonLabel(SAL.season)}</span>` : ''}</p>`; };
 function salaryBlock(pid) {
   const r = pid && SALBY[pid];
   if (!r) return '';
@@ -1125,6 +1180,7 @@ async function renderSeasonPlayer(pid) {
         <div class="tile" title="${seasonTip(p, 'def_grade')}"><div class="k">Defense</div><div class="v">${gradePill(p.def_grade)}</div><div class="small muted">${p.def_score == null ? '' : `score ${sgn(p.def_score, 1)}${p.def_pct != null ? ` · ${ordn(p.def_pct)} pct` : ''}`}</div></div>
         <div class="tile" title="${p.prod_parts ? prodWhy(p.prod_parts, p.prod_score) + '&#10;' + tipEsc('Production is 30% of every game grade (see a game Grade for its parts).') : ''}"><div class="k">PER</div><div class="v">${p.per == null ? '–' : p.per.toFixed(1)}</div><div class="small muted">${p.per == null ? '' : `vs his ${p.prod_parts ? p.prod_parts.base : '–'} baseline`}${p.fp != null ? ` · ${p.fp} fantasy pts/g` : ''}</div></div>${projTile}</div></div>
     <div id="flag-slot"></div>
+    ${statRanks(p)}
     <div class="table-wrap"><table><thead><tr><th>Date</th><th>Game</th><th class="num">Min</th><th class="num">Pts</th><th class="num">Reb</th><th class="num">Ast</th><th class="num">+/−</th><th class="num">Game impact</th><th class="num">Expected</th><th>Grade</th><th>Off</th><th>Def</th><th class="num">PER</th><th class="num hide-sm" title="DraftKings-style fantasy points">FP</th></tr></thead><tbody>
       ${[...p.log].reverse().map(x => `<tr class="link" data-href="#game/${x.id}"><td class="nowrap">${fmtDate(x.date)}</td><td class="nowrap"><a href="#game/${x.id}">${x.home ? 'vs' : '@'} ${x.opp}</a> <span class="muted small">${x.result} ${sgn(x.margin, 0)}</span></td>
         <td class="num">${(x.mp || 0).toFixed(0)}</td><td class="num">${x.pts ?? '–'}</td><td class="num">${x.trb ?? '–'}</td><td class="num">${x.ast ?? '–'}</td><td class="num">${sgn(x.pm, 0)}</td><td class="num">${x.bpm == null ? '–' : sgn(x.bpm, 1)}</td><td class="num">${sgn(x.exp, 1)}</td><td class="has-tip" title="${gradeWhy(x)}">${gradePill(x.grade)}</td><td class="has-tip" title="${offWhy(x)}">${gradePill(x.off_grade)}</td><td class="has-tip" title="${defWhy(x)}">${gradePill(x.def_grade)}</td><td class="num">${x.gper == null ? '–' : x.gper.toFixed(1)}</td><td class="num hide-sm">${x.fp ?? '–'}</td></tr>`).join('')}</tbody></table></div>
@@ -1578,14 +1634,14 @@ function impactBlock(m, pid) {   // PER this season (past seasons on click), fan
   const GRP = { guard: 'guards', wing: 'wings', big: 'bigs' };
   const U = c && fs(c.season) && fs(c.season).usg != null ? fs(c.season) : c;
   const usgTxt = U && U.usg != null ? ` · usage <b>${U.usg.toFixed(1)}%</b>${U.usg_pct != null ? ` <span class="pill ${usgBand(U.usg_pct)}" title="usage percentile among ${U.usg_n} ${GRP[U.grp] || 'players'} this season (10+ min/game)">${ordn(U.usg_pct)} pct of ${GRP[U.grp] || 'players'}</span>` : ''}` : '';
-  const head = c ? `PER ${seasonLabel(c.season)}: <b>${c.per.toFixed(1)}</b> <span class="muted small">(${c.g} game${c.g === 1 ? '' : 's'} so far)</span>${usgTxt}` : last ? `PER ${seasonLabel(last.season)}: <b>${last.per == null ? '–' : last.per.toFixed(1)}</b> <span class="muted small">(no games this season yet)</span>` : 'PER';
-  const flags = [m.washed ? `<span class="pill BAD" title="29+ and last season's PER or impact fell well below his three seasons before">Washed up</span> <span class="small muted">${seasonLabel(m.washed.season)} PER ${m.washed.per} vs ${m.washed.per_before} the three seasons before, impact ${sgn(m.washed.bpm, 1)} vs ${sgn(m.washed.bpm_before, 1)}</span>` : '',
+  const head = c ? `PER ${seasonLabel(c.season)}: <b>${c.per.toFixed(1)}</b> <span class="muted small">(${c.g} game${c.g === 1 ? '' : 's'} so far)</span>${c.mp && c.g ? ` · <b>${(c.mp / c.g).toFixed(1)}</b> min/game` : ''}${usgTxt}` : last ? `PER ${seasonLabel(last.season)}: <b>${last.per == null ? '–' : last.per.toFixed(1)}</b> <span class="muted small">(no games this season yet)</span>` : 'PER';
+  const flags = [m.washed ? `<span class="pill BAD" title="29+, last season's PER under 14 and 2+ below his three seasons before, with his impact down 1+ too">Washed up</span> <span class="small muted">${seasonLabel(m.washed.season)} PER ${m.washed.per} vs ${m.washed.per_before} the three seasons before, impact ${sgn(m.washed.bpm, 1)} vs ${sgn(m.washed.bpm_before, 1)}</span>` : '',
     m.out ? `<span class="pill VERY_BAD" title="Single-digit PER with average or worse defense">Should be out of the league</span> <span class="small muted">PER ${m.out.per} last season${m.out.per3 != null ? `, ${m.out.per3} over his last three` : ''}, defense ${esc(m.out.d)}</span>` : ''].filter(Boolean);
   // average PER over his last three seasons with 300+ minutes (as the out-of-the-league check uses)
-  const three = m.seasons.slice(-3).filter(x => x.per != null && (x.mp || 0) >= 300);
+  const three = m.seasons.filter(x => x.season < (c ? c.season : X_CUR())).slice(-3).filter(x => x.per != null && (x.mp || 0) >= 300);   // completed seasons only
   const avg3 = three.length ? three.reduce((a, x) => a + x.per, 0) / three.length : null;
   const usg3 = F && F.usg3 != null ? ` · usage <b>${F.usg3.toFixed(1)}%</b>${F.usg3_pct != null ? ` <span class="pill ${usgBand(F.usg3_pct)}" title="games-weighted average of his usage percentile among ${GRP[F.usg3_grp] || 'his position'} over those seasons">${ordn(F.usg3_pct)} pct of ${GRP[F.usg3_grp] || 'players'}</span>` : ''}` : '';
-  const avgTxt = avg3 == null ? '' : `<br>3-season average: PER <b>${avg3.toFixed(1)}</b> <span class="muted small">(${three.length === 1 ? seasonLabel(three[0].season) : `${seasonLabel(three[0].season)} to ${seasonLabel(three[three.length - 1].season)}`})</span>${usg3}`;
+  const avgTxt = avg3 == null ? '' : `<br>3-season average: PER <b>${avg3.toFixed(1)}</b> <span class="muted small">(${three.length === 1 ? seasonLabel(three[0].season) : `${seasonLabel(three[0].season)} to ${seasonLabel(three[three.length - 1].season)}`})</span>${(() => { const g = three.reduce((a, x) => a + (x.g || 0), 0); return g ? ` · <b>${(three.reduce((a, x) => a + (x.mp || 0), 0) / g).toFixed(1)}</b> min/game` : ''; })()}${usg3}`;
   return `<details class="per-line"><summary>${head}${avgTxt} <span class="small muted">· past seasons</span>${fantTxt}</summary>
       <div class="table-wrap"><table class="sty-table"><thead><tr><th>Season</th><th class="num">PER</th><th class="num" title="Box plus/minus">Impact (BPM)</th><th class="num" title="Usage rate: share of team plays he used while on the floor">Usage</th><th class="num">Games</th><th class="num">Min</th><th class="num" title="Basketball Monster 9-category value per game (rank · 12-team round.pick)">Fantasy value</th></tr></thead><tbody>
       ${c ? `<tr><td>${seasonLabel(c.season)} <span class="muted small">so far</span></td><td class="num strong">${c.per.toFixed(1)}</td><td class="num">–</td>${usgCell(fs(c.season), c)}<td class="num">${c.g}</td><td class="num">${c.mp}</td><td class="num">${fCell(c.season)}</td></tr>` : ''}
