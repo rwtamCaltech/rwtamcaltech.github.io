@@ -791,18 +791,40 @@ function pageRows(table, n) {   // show n body rows at a time, with ← → unde
   show();
 }
 // stat leaderboards (top 20 per category), from season.json stat_leaders
-const STAT_KIND = { per40: 'Per 40 minutes', pg: 'Per game', pct: 'Shooting' };
+const STAT_KIND = { per40: 'Per 40 minutes', pg: 'Per game', pct: 'Shooting', role: 'Role and value' };
+// usage, fantasy value and season Grade / Off / Def ranks among the same qualified players (40%+ of team games, 15+ min/game)
+function ensureExtra(Z) {
+  if (!Z || !Z.stat_meta || Z._extra) return Z && Z._extra;
+  const M = Z.stat_meta, tg = Object.fromEntries(Z.teams.map(t => [t.team, t.games || 0]));
+  const Q = Z.teams.flatMap(t => t.players).filter(p => p.games >= Math.max(1, Math.ceil(M.games * (tg[p.team] || 0))) && p.mpg >= M.mpg);
+  const row = (p, v) => ({ pid: p.pid, name: p.name, team: p.team, g: p.games, mpg: p.mpg, val: v });
+  const sorted = f => Q.map(p => [p, f(p)]).filter(x => x[1] != null).sort((a, b) => b[1] - a[1]);
+  const L = { usg: sorted(p => { const c = FANT && FANT[p.pid] && FANT[p.pid].cur; return c && c.usg != null ? c.usg : p.usg ?? null; }),
+    fval: sorted(p => { const c = FANT && FANT[p.pid] && FANT[p.pid].cur; return c ? c.value : null; }),
+    grade: sorted(p => p.score), off: sorted(p => p.off_score), def: sorted(p => p.def_score) };
+  Z.stat_leaders.usg = L.usg.slice(0, 20).map(([p, v]) => row(p, v));
+  Z.stat_leaders.fval = L.fval.slice(0, 20).map(([p, v]) => row(p, v));
+  if (!M.cats.some(c => c.key === 'usg')) M.cats.push({ key: 'usg', label: 'Usage %', kind: 'role' }, { key: 'fval', label: 'Fantasy value (BBM)', kind: 'role' });
+  const rk = {};   // pid -> [{cat, rank, val, of, bottom}]
+  const add = (k, list, bottom) => list.forEach(([p, v], i) => { const n = list.length, r = bottom ? n - i : i + 1;
+    if (r <= 20) (rk[p.pid] = rk[p.pid] || []).push({ cat: k, rank: r, val: v, of: n, bottom }); });
+  add('usg', L.usg); add('fval', L.fval);
+  ['grade', 'off', 'def'].forEach(k => { add(k, L[k]); add(k, L[k], true); });
+  return (Z._extra = { ranks: rk, n: Q.length });
+}
+const GRADE_LAB = { grade: 'Grade', off: 'Offense', def: 'Defense' };
 function statTable(Z, k) {
   const L = (Z.stat_leaders || {})[k] || [], c = (Z.stat_meta.cats || []).find(x => x.key === k) || {};
   const pct = c.kind === 'pct';
   return `<div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Games</th><th class="num">Min / game</th>${pct ? '<th class="num">Attempts / game</th>' : ''}<th class="num">${esc(c.label || k)}</th></tr></thead><tbody>
-    ${L.map((x, i) => `<tr class="link" data-href="#splayer/${x.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${x.pid}">${esc(x.name)}</a></td><td><span class="team-tag">${x.team}</span></td><td class="num">${x.g}</td><td class="num">${x.mpg}</td>${pct ? `<td class="num">${x.att}</td>` : ''}<td class="num strong">${x.val.toFixed(1)}${pct ? '%' : ''}</td></tr>`).join('')}</tbody></table></div>`;
+    ${L.map((x, i) => `<tr class="link" data-href="#splayer/${x.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${x.pid}">${esc(x.name)}</a></td><td><span class="team-tag">${x.team}</span></td><td class="num">${x.g}</td><td class="num">${x.mpg}</td>${pct ? `<td class="num">${x.att}</td>` : ''}<td class="num strong">${k === 'fval' ? sgn(x.val, 2) : `${x.val.toFixed(1)}${pct || k === 'usg' ? '%' : ''}`}</td></tr>`).join('')}</tbody></table></div>`;
 }
 function statSection(Z) {
   if (!Z.stat_leaders || !Z.stat_meta) return '';
+  ensureExtra(Z);
   const M = Z.stat_meta, first = M.cats[0].key;
   return `<h3>Stat leaders: top 20</h3>
-    <p class="lede">Players with ${Math.round(100 * M.games)}%+ of their team's games so far and ${M.mpg}+ min/game (${M.qualified} qualify). Shooting percentages also need attempts per game: 6+ field-goal attempts for FG% and true shooting, 3+ three-point attempts for 3P%, 2+ free-throw attempts for FT%.</p>
+    <p class="lede">Players with ${Math.round(100 * M.games)}%+ of their team's games so far and ${M.mpg}+ min/game (${M.qualified} qualify). Shooting percentages also need attempts per game: 6+ field-goal attempts for FG% and true shooting, 3+ three-point attempts for 3P%, 2+ free-throw attempts for FT%. Usage and fantasy value are <a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a>'s this season.</p>
     ${Object.entries(STAT_KIND).map(([kd, lab]) => `<div class="toolbar"><span class="small muted stat-kind">${lab}</span><div class="seg stat-seg">${M.cats.filter(c => c.kind === kd).map(c => `<button data-k="${c.key}" class="${c.key === first ? 'on' : ''}">${esc(c.label.replace(/ per (40|game)$/, ''))}</button>`).join('')}</div></div>`).join('')}
     <div id="stat-table">${statTable(Z, first)}</div>`;
 }
@@ -814,8 +836,13 @@ function bindStatSection(view, Z) {
 }
 // a player's top-20 stat ranks for his page
 function statRanks(p) {
-  const R = p.stat_ranks || [], M = S._season && S._season.stat_meta; if (!M) return '';
-  if (!R.length) {   // nothing to list: say whether he qualifies at all
+  const M = S._season && S._season.stat_meta; if (!M) return '';
+  const X = ensureExtra(S._season) || { ranks: {} }, XR = X.ranks[p.pid] || [];
+  const R = [...(p.stat_ranks || []), ...XR.filter(r => r.cat === 'usg' || r.cat === 'fval')];
+  const G = XR.filter(r => GRADE_LAB[r.cat] && !r.bottom), B = XR.filter(r => GRADE_LAB[r.cat] && r.bottom);
+  const gLine = (L, bad) => L.map(r => `<span class="stat-rank"><span class="pill ${bad ? 'VERY_BAD' : r.rank <= 5 ? 'sv-elite' : r.rank <= 10 ? 'sv-good' : 'sv-mid'}">${bad ? `${ordinal(r.rank)} worst` : `#${r.rank}`}</span> ${GRADE_LAB[r.cat]} <span class="muted small">score ${sgn(r.val, 1)}, of ${r.of}</span></span>`).join(' · ');
+  const gradeTxt = (G.length ? `<p><b>Season grades, top 20:</b> ${gLine(G)}</p>` : '') + (B.length ? `<p class="bottom20"><b>Bottom 20:</b> ${gLine(B, true)}</p>` : '');
+  if (!R.length && !gradeTxt) {   // nothing to list: say whether he qualifies at all
     const tm = (S._season.teams || []).find(t => t.team === p.team), need = Math.max(1, Math.ceil(M.games * ((tm && tm.games) || 0)));
     const why = [p.games < need ? `${p.games} of the ${need}+ games needed (${Math.round(100 * M.games)}% of his team's)` : '', p.mpg < M.mpg ? `${p.mpg} min/game, under ${M.mpg}` : ''].filter(Boolean);
     return `<h3>Stat ranks</h3><p class="muted">${why.length ? `Not qualified: ${why.join('; ')}.` : 'Nothing in the top 20 this season.'} <a href="#season">Stat leaders →</a></p>`;
@@ -823,7 +850,7 @@ function statRanks(p) {
   const lab = Object.fromEntries(M.cats.map(c => [c.key, c])), by = {};
   R.forEach(r => { const c = lab[r.cat]; if (c) (by[c.kind] = by[c.kind] || []).push({ ...r, c }); });
   return `<h3>Stat ranks <span class="muted small">· top 20 this season among qualified players (${Math.round(100 * M.games)}%+ of team games, ${M.mpg}+ min/game; shooting needs enough attempts)</span></h3>
-    ${Object.entries(STAT_KIND).filter(([kd]) => by[kd]).map(([kd, l]) => `<p><b>${l}:</b> ${by[kd].sort((a, b) => a.rank - b.rank).map(r => `<span class="stat-rank"><span class="pill ${r.rank <= 5 ? 'sv-elite' : r.rank <= 10 ? 'sv-good' : 'sv-mid'}">#${r.rank}</span> ${esc(r.c.label.replace(/ per (40|game)$/, ''))} <span class="muted small">${r.val.toFixed(1)}${kd === 'pct' ? '%' : ''}, of ${r.of}</span></span>`).join(' · ')}</p>`).join('')}
+    ${gradeTxt}${Object.entries(STAT_KIND).filter(([kd]) => by[kd]).map(([kd, l]) => `<p><b>${l}:</b> ${by[kd].sort((a, b) => a.rank - b.rank).map(r => `<span class="stat-rank"><span class="pill ${r.rank <= 5 ? 'sv-elite' : r.rank <= 10 ? 'sv-good' : 'sv-mid'}">#${r.rank}</span> ${esc(r.c.label.replace(/ per (40|game)$/, ''))} <span class="muted small">${r.cat === 'fval' ? sgn(r.val, 2) : `${r.val.toFixed(1)}${kd === 'pct' || r.cat === 'usg' ? '%' : ''}`}, of ${r.of}</span></span>`).join(' · ')}</p>`).join('')}
     <p class="small"><a href="#season">All stat leaders →</a></p>`;
 }
 function gamesTable(games, team) {
@@ -857,6 +884,7 @@ async function renderSeason(team) {
   const view = $('#view');
   const Z = await seasonData();
   await fantasyData();
+  await BIRTHS_P;
   const lede = `<p class="lede">Every ${seasonLabel(Z.season)} game, newest first, updated nightly (2 AM Pacific). Each team's <b>expectation</b> uses the players who actually played and their minutes: each player's expected impact is his Outlook projection (last three seasons, recency- and games-weighted; rookies from draft slot and college stats), blended with his box-score impact this season once he has ${Z.min_games} games (games ÷ (games + ${Z.season_k})). Expected margin = home − away + ${Z.home_edge} for home court. <b>Coach score</b> adds up actual − expected margins for his team (points), so + means the team beat what its players should have produced. The <b>injury score</b> adds up what absent rotation players would have added over a replacement-level fill-in. Click a game for its box score and player grades.</p>`;
   if (!team) {
     view.innerHTML = `<h2>${seasonLabel(Z.season)} Teams</h2>${lede}
@@ -941,6 +969,7 @@ async function renderSeason(team) {
       <p><b>Usage 20%+ (${hi.length}):</b> ${li(hi)}</p>
       <p><b>Usage 15–20% (${mid.length}):</b> ${li(mid)}</p>`; })()}
     ${moverSection(Z, team)}
+    ${wayOut(Z, t)}
     <h3>Players by grade</h3>
     <p class="lede">Each player's season grade is his minutes-weighted average game score (games with ${5}+ minutes), graded on a curve against every player this season (A+ top 3%, A range top 13%, B− or better top 48%, D or F bottom 15%; box scores are curved against every graded game); click a player for every game, or a column to sort (Fantasy sorts by Basketball Monster rank). Each game score is 70% impact (box score, against his expectation, plus-minus, counterparts) and 30% production (game PER against a typical rotation player, his own last three seasons and, upside only, what this team got last season from his position and starter/bench slot); an otherworldly line (PER 30+ over 25+ minutes or 60+ fantasy points) is an A+. Hover a game's Grade on his page for every part.</p>
     <label class="small"><input type="checkbox" id="show-all-p"> Show players averaging 5 or fewer minutes (${t.players.filter(p => p.mpg <= 5).length} hidden)</label>
@@ -986,6 +1015,18 @@ function teamMovers(Z, team) {   // a team's players in the usage down / up top 
 const moverLi = X => X.length ? X.map(x => `<a href="#splayer/${x.p.pid}">${esc(x.p.name)}</a> <b>${sgn(x.d, 1)}</b> <span class="muted small">(${x.F.cur.usg.toFixed(1)}% from ${x.F.usg3.toFixed(1)}%)</span> ${gradePill(x.p.grade)}`).join(' · ') : '<span class="muted">none</span>';
 const MOVER_ROWS = [['up_good', 'good', 'Rising to the occasion', 'usage up, grading B or better'], ['up_bad', 'bad', 'Biting off more than he can chew', 'usage up, grading C or worse'],
   ['down_good', 'good', 'Thriving in a smaller role', 'usage down, grading B− or better'], ['down_bad', 'bad', 'Fading with less of the ball', 'usage down, grading C or worse']];
+function wayOut(Z, t) {   // minutes well down from last season / his last three, and contracts the team may move
+  const ly = String(Z.season - 1);
+  const mins = t.players.map(p => { const F = FANT && FANT[p.pid]; if (!F) return null; const L = F.seasons && F.seasons[ly];
+    const last = L && L.g >= 10 && L.mpg != null ? L.mpg : null, m3 = F.mpg3 ?? null, prev = Math.max(last ?? 0, m3 ?? 0);
+    return prev >= 15 && p.mpg <= prev - 7 && p.mpg <= 0.7 * prev ? { p, last, m3, drop: prev - p.mpg } : null; }).filter(Boolean).sort((a, b) => b.drop - a.drop);
+  const sal = (SAL ? SAL.players : []).filter(r => r.team === t.team && r.contract && (r.contract.tag === 'Toxic contract' || r.contract.expiring))
+    .sort((a, b) => b.contract.salary - a.contract.salary);
+  return `<h3>On their way out?</h3>
+    <p><b>Minutes well down (${mins.length}):</b> ${mins.length ? mins.map(x => `<a href="#splayer/${x.p.pid}">${esc(x.p.name)}</a> <b>${x.p.mpg.toFixed(1)}</b> min/game <span class="muted small">(${[x.last != null ? `${x.last.toFixed(1)} last season` : '', x.m3 != null ? `${x.m3.toFixed(1)} over his last three` : ''].filter(Boolean).join(', ')})</span>`).join(' · ') : '<span class="muted">none</span>'}</p>
+    <p><b>Contracts to move (${sal.length}):</b> ${sal.length ? sal.map(r => `<a href="#splayer/${r.pid}">${esc(r.name)}</a> ${money(r.contract.salary)} ${r.contract.tag === 'Toxic contract' ? salPill(r.contract.tag) : ''} ${chipPill(r.contract)}`).join(' · ') : '<span class="muted">none</span>'}</p>
+    <p class="small muted">Minutes: 15+ min/game last season or over his last three (<a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a>, seasons with 10+ games) and now 7+ fewer and under 70% of that. Contracts: toxic contracts and expiring trade chips from the <a href="#salary">Salary</a> tab.</p>`;
+}
 function moverSection(Z, team) {
   const M = teamMovers(Z, team);
   return `<h3>Usage movers <span class="muted small">· in the league's top 50 usage gains or drops against his last three seasons (<a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a>)</span></h3>
@@ -1139,6 +1180,7 @@ async function draftAge(pid) {
 async function renderSeasonPlayer(pid) {
   const view = $('#view');
   await seasonData().catch(() => null);
+  await fantasyData();
   let p = null, proj = null;
   try { p = await getJSON(`data/season/players/${pid}.json`); } catch (e) { p = null; }
   try {

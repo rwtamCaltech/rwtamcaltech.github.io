@@ -299,3 +299,4 @@ tr.usg-bad > td { background: color-mix(in srgb, var(--sv-poor) 55%, transparent
 .stat-kind { min-width: 7.5rem; display: inline-block; }
 .stat-seg { flex-wrap: wrap; }
 .stat-rank { white-space: nowrap; }
+.bottom20 { color: var(--sv-poor-ink, inherit); }
