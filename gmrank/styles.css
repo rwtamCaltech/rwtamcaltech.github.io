@@ -294,3 +294,5 @@ tr.usg-bad > td { background: color-mix(in srgb, var(--sv-poor) 55%, transparent
 .freeze-wrap .frozen-last { box-shadow: inset -1px 0 0 var(--line); }
 .freeze-wrap tbody tr:hover .frozen { background: var(--surface-2); }
 @media (max-width: 700px) { .freeze-wrap tr > .frozen:nth-child(n+3) { position: static; } .freeze-wrap tr > .frozen:nth-child(2) { box-shadow: inset -1px 0 0 var(--line); } }
+.flags { margin: 0.5rem 0 1rem; }
+.movers-table td { vertical-align: top; }
