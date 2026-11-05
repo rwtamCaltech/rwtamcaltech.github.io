@@ -572,7 +572,7 @@ const gradeLead = x => { const q = x.parts; const cp = q.cp_who && q.cp_who.leng
   return `${lvl(x.score, 3, -3)} game overall (${statBits(x)}): ${q.vs_exp >= 0 ? 'better' : 'worse'} than we expect from him${q.pm_rel >= 3 ? ', and the team did better with him on the floor' : q.pm_rel <= -3 ? ', and the team did worse with him on the floor' : ''}${cp}.`; };
 const gradeWhy = x => {
   const q = x.parts;
-  if (!q) return 'Under 10 minutes: not graded';
+  if (!q) return 'Under 5 minutes: not graded';
   const L = [gradeLead(x), '', `Box score: game impact ${sgn(q.bpm, 1)} (55% weight) → ${sgn(0.55 * q.bpm, 2)}`,
     `Vs his expectation (${sgn(x.exp, 1)}): ${q.vs_exp >= 0 ? 'beat it' : 'fell short'} by ${Math.abs(q.vs_exp).toFixed(1)} (30%) → ${sgn(0.30 * q.vs_exp, 2)}`,
     `+/− vs his team: ${q.pm_rel >= 0 ? 'better' : 'worse'} than the team margin by ${Math.abs(q.pm_rel).toFixed(1)} per 36 (15%) → ${sgn(0.15 * q.pm_rel, 2)}`];
@@ -891,7 +891,7 @@ async function renderSeason(team) {
       <p><b>Usage 15–20% (${mid.length}):</b> ${li(mid)}</p>`; })()}
     ${moverSection(Z, team)}
     <h3>Players by grade</h3>
-    <p class="lede">Each player's season grade is his minutes-weighted average game score (games with ${10}+ minutes), graded on a curve against every player this season (A+ top 3%, A range top 13%, B− or better top 48%, D or F bottom 15%; box scores are curved against every graded game); click a player for every game, or a column to sort (Fantasy sorts by Basketball Monster rank). Each game score is 70% impact (box score, against his expectation, plus-minus, counterparts) and 30% production (game PER against a typical rotation player, his own last three seasons and, upside only, what this team got last season from his position and starter/bench slot); an otherworldly line (PER 30+ over 25+ minutes or 60+ fantasy points) is an A+. Hover a game's Grade on his page for every part.</p>
+    <p class="lede">Each player's season grade is his minutes-weighted average game score (games with ${5}+ minutes), graded on a curve against every player this season (A+ top 3%, A range top 13%, B− or better top 48%, D or F bottom 15%; box scores are curved against every graded game); click a player for every game, or a column to sort (Fantasy sorts by Basketball Monster rank). Each game score is 70% impact (box score, against his expectation, plus-minus, counterparts) and 30% production (game PER against a typical rotation player, his own last three seasons and, upside only, what this team got last season from his position and starter/bench slot); an otherworldly line (PER 30+ over 25+ minutes or 60+ fantasy points) is an A+. Hover a game's Grade on his page for every part.</p>
     <div class="table-wrap"><table class="grade-table"><thead><tr><th>#</th><th>Player</th><th class="num">Games</th><th class="num">Min / game</th><th class="num">Score</th><th>Grade</th><th>Off</th><th>Def</th><th class="num">PER</th><th class="num" title="Basketball Monster rank this season and its 12-team round.pick">Fantasy</th></tr></thead><tbody>
       ${t.players.map((p, i) => `<tr class="link" data-href="#splayer/${p.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${p.pid}">${esc(p.name)}</a></td><td class="num">${p.games}</td><td class="num">${p.mpg}</td><td class="num">${p.score == null ? '–' : sgn(p.score, 1)}</td><td data-v="${p.score ?? ''}" class="has-tip" title="${seasonTip(p, 'grade')}">${gradePill(p.grade)}</td><td data-v="${p.off_score ?? ''}" class="has-tip" title="${seasonTip(p, 'off_grade')}">${gradePill(p.off_grade)}</td><td data-v="${p.def_score ?? ''}" class="has-tip" title="${seasonTip(p, 'def_grade')}">${gradePill(p.def_grade)}</td><td class="num">${p.per == null ? '–' : p.per.toFixed(1)}</td>${fantCell(FANT && FANT[p.pid] && FANT[p.pid].cur)}</tr>`).join('')}</tbody></table></div>`;
   sortableTables(view, '.grade-table');
@@ -902,7 +902,7 @@ function topLede(Z, k) {
   const g = Z.top_min_games > 1 ? `; at least ${Z.top_min_games} graded games` : '';
   if (k === 'prod') return `Season production score: PER against a typical rotation player and his own last three seasons, plus the upside-only bonus over last season's slot (hover a Prod grade for its parts)${g}, and 40%+ of his team's games so far.`;
   if (k === 'usg_down' || k === 'usg_up') return `This season's usage (<a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a>) against his average over the last three seasons (games-weighted, seasons with 10+ games), ${k === 'usg_down' ? 'biggest drops first: players whose roles have shrunk. Green rows grade B− or better (doing more with less), red rows C or worse' : 'biggest gains first: players taking on more responsibility. Green rows grade B or better (rising to the occasion), red rows C or worse (biting off more than they can chew)'}. Counts players with 40%+ of their team's games so far and 15+ min/game, and at least one past season.`;
-  return `Minutes-weighted average ${k === 'off' ? 'offense' : k === 'def' ? 'defense' : 'grade'} score over every graded game this season (10+ minutes)${g}.`;
+  return `Minutes-weighted average ${k === 'off' ? 'offense' : k === 'def' ? 'defense' : 'grade'} score over every graded game this season (5+ minutes)${g}.`;
 }
 const GRADE_ORDER = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C+', 'C', 'C-', 'D', 'F'];
 const gAtLeast = (g, min) => GRADE_ORDER.indexOf(g) >= 0 && GRADE_ORDER.indexOf(g) <= GRADE_ORDER.indexOf(min);
@@ -992,7 +992,7 @@ async function renderGame(id) {
         <div class="tile"><div class="k">Actual</div><div class="v">${g.margin >= 0 ? g.home : g.away} by ${Math.abs(g.margin)}</div></div>
         <div class="tile"><div class="k">Over / under</div><div class="v">${g.diff >= 0 ? g.home : g.away} ${sgn(Math.abs(g.diff), 1)}</div><div class="small muted">added to ${esc(g.coach_home || g.home)} (${sgn(g.diff, 1)}) and ${esc(g.coach_away || g.away)} (${sgn(-g.diff, 1)})</div></div>
       </div></div>
-    <p class="lede">Grades (10+ minutes): 0.55 × his game impact (so a great box score earns an A whoever he is) + 0.30 × game impact vs his expectation + 0.15 × his +/− per 36 relative to his team's margin − 0.20 × how far his positional counterparts (same position group, similar minutes) beat their own expectations. A game impact of +12 or game score 28+ is at least an A−. <b>Off</b> grades purely offensive box stats (scoring, efficiency, free throws drawn, assists, offensive boards, turnovers) against his expected offense. <b>Def</b> grades defensive boards, steals, blocks, fouls and +/−, against his expected defense, and docks him when his positional counterparts scored better than expected on him (credits him when they did worse). Hover a grade for its parts.</p>
+    <p class="lede">Grades (5+ minutes): 0.55 × his game impact (so a great box score earns an A whoever he is) + 0.30 × game impact vs his expectation + 0.15 × his +/− per 36 relative to his team's margin − 0.20 × how far his positional counterparts (same position group, similar minutes) beat their own expectations. A game impact of +12 or game score 28+ is at least an A−. <b>Off</b> grades purely offensive box stats (scoring, efficiency, free throws drawn, assists, offensive boards, turnovers) against his expected offense. <b>Def</b> grades defensive boards, steals, blocks, fouls and +/−, against his expected defense, and docks him when his positional counterparts scored better than expected on him (credits him when they did worse). Hover a grade for its parts.</p>
     ${side(g.away)}${side(g.home)}`;
 }
 const ordinal = n => n + ((n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({1: 'st', 2: 'nd', 3: 'rd'}[n % 10] || 'th'));
@@ -1678,15 +1678,9 @@ const draftPcRow = r => !r || !((r.tag_pos || []).length || (r.tag_neg || []).le
 // near the top of a player page: his weaknesses, this season's weak grades and his contract tags
 async function flagSlot(view, pid, sp = null) {
   const slot = $('#flag-slot', view); if (!slot) return;
-  await BIRTHS_P;
-  const got = await styleByPid(pid).catch(() => null);
   const L = [];
   if (sp) { const w = [['Overall', 'grade', 'grade_pct'], ['Offense', 'off_grade', 'off_pct'], ['Defense', 'def_grade', 'def_pct']].filter(([, g]) => ['D', 'F'].includes(sp[g]));
     if (w.length) L.push(`<p><b>This season</b>: ${w.map(([k, g, pc]) => `${k} ${gradePill(sp[g])}${sp[pc] != null ? ` <span class="muted small">(bottom ${Math.max(1, sp[pc])}%)</span>` : ''}`).join(' · ')}</p>`); }
-  if (got) { const { cons } = styProsCons(got.p); if (cons.length) L.push(`<p><b>Weaknesses</b>: ${esc(styList(cons))}.</p>`); }
-  const c = SALBY[pid] && SALBY[pid].contract;
-  if (c && (c.tag || c.label)) { const n = c.expected_years || c.years_left;
-    L.push(`<p><b>Contract</b>: ${salPill(c.tag)} ${salPill(c.label)} ${chipPill(c)} <span class="small">${money(c.salary)} this season, ${c.share}% of the cap against ${c.fair}% he's worth${c.total_diff != null && n ? `; ${c.total_diff < 0 ? 'overpaid' : 'underpaid'} by ${Math.abs(c.total_diff)} cap points over ${n} season${n === 1 ? '' : 's'}` : ''}</span></p>`); }
   slot.innerHTML = L.length ? `<div class="sty-summary flags">${L.join('')}</div>` : '';
 }
 async function styleSlot(view, pid, prof = null) {   // the style block on player / prospect pages, before the draft section
