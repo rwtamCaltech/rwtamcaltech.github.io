@@ -331,3 +331,10 @@ tr.us-row.open > td { font-weight: 600; }
 .us-list { margin: 4px 0 6px 1.2rem; padding: 0; columns: 2; column-gap: 1.5rem; font-size: 0.85rem; }
 .us-list li { break-inside: avoid; margin: 1px 0; }
 @media (max-width: 700px) { .us-list { columns: 1; } }
+@keyframes flashbg { from { box-shadow: 0 0 0 3px var(--accent, #d9622b); } to { box-shadow: 0 0 0 0 transparent; } }
+.flash { animation: flashbg 1.6s ease-out; border-radius: 10px; }
+tr.hl-row > td { background: color-mix(in srgb, var(--accent, #d9622b) 18%, transparent); font-weight: 600; }
+.pos-ranks { margin: 0.4rem 0 1rem; }
+.pos-ranks > summary { cursor: pointer; font-weight: 600; }
+.team-ranks td { vertical-align: top; }
+.team-ranks td a { text-decoration: none; }
