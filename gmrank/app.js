@@ -1186,13 +1186,18 @@ function fitCandidates(Z, t) {   // cached: {T, good, bad, C (top 12 attainable 
     if (prev && prev !== x.p.team) return;                     // only players who didn't just join their team
     tag(x.p.pid, v.tag); }));
   const who = {}; Z.teams.forEach(o => o.players.forEach(p => { who[p.pid] = p; }));
+  (SAL ? SAL.players : []).forEach(r => { const p = who[r.pid];   // toxic contracts on struggling players: a team may want out
+    if (r.team === t.team || !r.contract || r.contract.tag !== 'Toxic contract' || !p || !p.grade || p.grade === 'N/A') return;
+    if (!gAtLeast(p.grade, 'B-') && (p.grade_pct ?? 100) < 50) tag(r.pid, `Toxic contract, grading ${p.grade}`); });
   const W = bad.map(c => c[4]);
-  const C = Object.entries(src).map(([pid, tags]) => { const p = who[pid]; if (!p || !W.length) return null;
+  const ALL = Object.entries(src).map(([pid, tags]) => { const p = who[pid]; if (!p || !W.length) return null;
     const ps = W.map(k => [k, posPct(pid, k)]).filter(x => x[1] != null); if (ps.length < Math.ceil(W.length / 2)) return null;
     const match = ps.reduce((a, x) => a + x[1], 0) / W.length;   // missing categories count as 0
     const helps = ps.filter(x => x[1] >= 75).map(x => TEAM_CATS.find(c => c[4] === x[0])[1]);
     const sal = SALBY[pid] && SALBY[pid].contract;
-    return { p, tags: [...tags], match, helps, grp: PERJ[pid].grp, sal }; }).filter(Boolean).sort((a, b) => b.match - a.match).slice(0, 12);
+    return { p, tags: [...tags], match, helps, grp: PERJ[pid].grp, sal }; }).filter(Boolean).sort((a, b) => b.match - a.match);
+  const C = ALL.slice(0, 12);   // plus the 3 best-fitting struggling toxic contracts (50%+ match) if they missed the top 12
+  ALL.slice(12).filter(x => x.tags.some(g => g.startsWith('Toxic')) && x.match >= 50).slice(0, 3).forEach(x => C.push(x));
   return (Z._fit[t.team] = { T, good, bad, C });
 }
 function teamFit(Z, t) {
@@ -1205,7 +1210,7 @@ function teamFit(Z, t) {
     <p><b>Weaknesses:</b> ${li(bad, 'VERY_BAD')}</p>
     <p class="small muted">Per game from the current roster's box scores (players who moved count for their current team); turnover rate = TOV ÷ (FGA + 0.44 × FTA + TOV); fewer turnovers and fouls rank higher. Usage isn't ranked for teams (a team always uses 100% of its plays).</p>
     ${bad.length ? `<h4>Who could help with the weaknesses</h4>
-    <p class="lede">Attainable players on other teams: <a href="#salary">prospective free agents and expiring contracts / trade chips</a>, players whose minutes are well down, and players fading with less of the ball or biting off more than they can chew who didn't just join their team. <b>Match</b> = his average percentile against his own position group (guards, wings or bigs, qualified players this season) in the team's weak categories (${bad.map(c => c[1]).join(', ')}); a category he can't be measured in counts as 0. Players with under 100 minutes this season are left out.</p>
+    <p class="lede">Attainable players on other teams: <a href="#salary">prospective free agents and expiring contracts / trade chips</a>, toxic contracts on players grading C+ or worse (below the 50th percentile), players whose minutes are well down, and players fading with less of the ball or biting off more than they can chew who didn't just join their team. <b>Match</b> = his average percentile against his own position group (guards, wings or bigs, qualified players this season) in the team's weak categories (${bad.map(c => c[1]).join(', ')}); a category he can't be measured in counts as 0. Players with under 100 minutes this season are left out.</p>
     <div class="table-wrap"><table class="fit-table"><thead><tr><th>Player</th><th>Team</th><th>Why attainable</th><th>Pos group</th><th class="num">Min / game</th><th class="num">Salary</th><th class="num">Match</th><th>Top 25% of his position in</th></tr></thead><tbody>
       ${C.map(x => `<tr><td class="nowrap"><a href="#splayer/${x.p.pid}">${esc(x.p.name)}</a> ${gradePill(x.p.grade)}</td><td><span class="team-tag">${x.p.team}</span></td><td class="small">${x.tags.map(esc).join('<br>')}</td><td>${x.grp}</td><td class="num">${x.p.mpg}</td><td class="num">${x.sal ? money(x.sal.salary) : '–'}</td><td class="num"><span class="pill ${pc(x.match)}">${Math.round(x.match)}%</span></td><td class="small">${x.helps.length ? x.helps.join(', ') : '<span class="muted">–</span>'}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No attainable players measured yet.</td></tr>'}</tbody></table></div>` : ''}`;
 }
