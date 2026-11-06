@@ -338,3 +338,6 @@ tr.hl-row > td { background: color-mix(in srgb, var(--accent, #d9622b) 18%, tran
 .pos-ranks > summary { cursor: pointer; font-weight: 600; }
 .team-ranks td { vertical-align: top; }
 .team-ranks td a { text-decoration: none; }
+.fit-table td { vertical-align: top; }
+li.trade-no .trade-txt { text-decoration: line-through; opacity: 0.6; }
+.trade-why { color: var(--sv-poor-ink, #b3261e); font-weight: 600; }

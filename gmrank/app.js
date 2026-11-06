@@ -847,10 +847,23 @@ const POS_CATS = [   // key, label, f(box) -> value, higher is better? (false: l
   ['ftr', 'Free throw rate (FTA / FGA)', b => b.fga ? b.fta / b.fga : null, true], ['3par', 'Three-point volume (3PA / FGA)', b => b.fga ? b.fg3a / b.fga : null, true, true],
   ['fg3', '3-pointers made (/ 40)', b => 40 * b.fg3 / b.mp, true, true], ['ts', 'True shooting %', b => b.fga + b.fta ? b.pts / (2 * (b.fga + 0.44 * b.fta)) : null, true],
   ['ast', 'Assist rate (/ 40)', b => 40 * b.ast / b.mp, true], ['usg', 'Usage rate', (b, u) => u, true],
-  ['pf', 'Foul rate (/ 40)', b => 40 * b.pf / b.mp, false], ['tov', 'Turnover rate (TOV / plays)', b => b.fga + b.fta + b.tov ? b.tov / (b.fga + 0.44 * b.fta + b.tov) : null, false]];
+  ['pf', 'Foul rate (/ 40)', b => 40 * b.pf / b.mp, false], ['tov', 'Turnover rate (TOV / plays)', b => b.fga + b.fta + b.tov ? b.tov / (b.fga + 0.44 * b.fta + b.tov) : null, false],
+  // match-only (team fit): not listed on player pages
+  ['ftm', 'Free throws made (/ 40)', b => 40 * b.ft / b.mp, true, false, true], ['fgp', 'Field goal %', b => b.fga >= 3 * b.g ? b.fg / b.fga : null, true, false, true],
+  ['3pp', '3-point %', b => b.fg3a >= 1.5 * b.g ? b.fg3 / b.fg3a : null, true, false, true], ['ftp', 'Free throw %', b => b.fta >= 1 * b.g ? b.ft / b.fta : null, true, false, true]];
 const POS_FMT = { ftr: v => v.toFixed(2), '3par': v => `${(100 * v).toFixed(0)}%`, ts: v => `${(100 * v).toFixed(1)}%`, tov: v => `${(100 * v).toFixed(1)}%`, usg: v => `${v.toFixed(1)}%` };
 const POS_NAME = { guard: 'guards', wing: 'wings', big: 'bigs' };
-let POSR = null;
+let POSR = null, POSR_POOL = null;
+// his percentile (higher = better for the team) in a category against qualified players of his group; works for
+// players outside the pool too (100+ minutes this season)
+function posPct(pid, k) {
+  posRanks(); const q = PERJ && PERJ[pid], c = POS_CATS.find(x => x[0] === k);
+  if (!q || !q.box || !q.grp || (q.box.mp || 0) < 100 || !POSR_POOL || !POSR_POOL[q.grp] || !c) return null;
+  const u = FANT && FANT[pid] && FANT[pid].cur && FANT[pid].cur.usg != null ? FANT[pid].cur.usg : q.usg, v = c[2](q.box, u);
+  const vals = POSR_POOL[q.grp][k]; if (v == null || !vals || !vals.length) return null;
+  const pct = 100 * (vals.filter(y => y < v).length + 0.5 * vals.filter(y => y === v).length) / vals.length;
+  return c[3] ? pct : 100 - pct;
+}
 function posRanks() {   // pid -> {grp, n, cats: {key: {v, pct}}} for qualified players (40%+ of team games, 12+ min/game)
   if (POSR) return POSR;
   const Z = S._season; if (!Z || !PERJ || !Z.stat_meta) return {};
@@ -859,8 +872,8 @@ function posRanks() {   // pid -> {grp, n, cats: {key: {v, pct}}} for qualified 
     if (p.games < Math.max(1, Math.ceil(M.games * (tg[p.team] || 0))) || p.mpg < M.mpg) return;
     const u = FANT && FANT[p.pid] && FANT[p.pid].cur && FANT[p.pid].cur.usg != null ? FANT[p.pid].cur.usg : q.usg;
     (byG[q.grp] = byG[q.grp] || []).push({ pid: p.pid, v: Object.fromEntries(POS_CATS.map(([k, , f]) => [k, f(q.box, u)])) }); });
-  POSR = {};
-  Object.entries(byG).forEach(([g, L]) => { L.forEach(x => { POSR[x.pid] = { grp: g, n: L.length, cats: {} }; });
+  POSR = {}; POSR_POOL = {};
+  Object.entries(byG).forEach(([g, L]) => { POSR_POOL[g] = Object.fromEntries(POS_CATS.map(([k]) => [k, L.map(x => x.v[k]).filter(v => v != null)])); L.forEach(x => { POSR[x.pid] = { grp: g, n: L.length, cats: {} }; });
     POS_CATS.forEach(([k]) => { const vals = L.map(x => x.v[k]).filter(v => v != null);
       L.forEach(x => { const v = x.v[k]; if (v == null) return;
         POSR[x.pid].cats[k] = { v, n: vals.length, hi: vals.filter(y => y > v).length + 1, lo: vals.filter(y => y < v).length + 1,
@@ -871,7 +884,7 @@ const POS_CUT = 15;   // strengths / weaknesses: top / bottom 15% of his positio
 const posFmt = (k, v) => (POS_FMT[k] || (x => x.toFixed(1)))(v);
 function posFlags(pid) {
   const R = posRanks()[pid]; if (!R) return null;
-  const cats = POS_CATS.filter(c => !(c[4] && R.grp === 'big'));
+  const cats = POS_CATS.filter(c => !(c[4] && R.grp === 'big') && !c[5]);
   const good = [], bad = [];
   cats.forEach(([k, lab, , hi]) => { const c = R.cats[k]; if (!c) return;
     const cut = Math.ceil(c.n * POS_CUT / 100), top = c.hi <= cut, bot = c.lo <= cut;   // top / bottom 10% by rank
@@ -1053,6 +1066,8 @@ async function renderSeason(team) {
     ${moverSection(Z, team)}
     ${wayOut(Z, t)}
     ${teamRanks(Z, t)}
+    ${teamFit(Z, t)}
+    ${tradeInterest(Z, t)}
     <h3>Players by grade</h3>
     <p class="lede">Each player's season grade is his minutes-weighted average game score (games with ${5}+ minutes), graded on a curve against every player this season (A+ top 3%, A range top 13%, B− or better top 48%, D or F bottom 15%; box scores are curved against every graded game); click a player for every game, or a column to sort (Fantasy sorts by Basketball Monster rank). Each game score is 70% impact (box score, against his expectation, plus-minus, counterparts) and 30% production (game PER against a typical rotation player, his own last three seasons and, upside only, what this team got last season from his position and starter/bench slot); an otherworldly line (PER 30+ over 25+ minutes or 60+ fantasy points) is an A+. Hover a game's Grade on his page for every part.</p>
     <label class="small"><input type="checkbox" id="show-all-p"> Show players averaging 5 or fewer minutes (${t.players.filter(p => p.mpg <= 5).length} hidden)</label>
@@ -1099,10 +1114,7 @@ const moverLi = X => X.length ? X.map(x => `<a href="#splayer/${x.p.pid}">${esc(
 const MOVER_ROWS = [['up_good', 'good', 'Rising to the occasion', 'usage up, grading B or better'], ['up_bad', 'bad', 'Biting off more than he can chew', 'usage up, grading C or worse'],
   ['down_good', 'good', 'Thriving in a smaller role', 'usage down, grading B− or better'], ['down_bad', 'bad', 'Fading with less of the ball', 'usage down, grading C or worse']];
 function wayOut(Z, t) {   // minutes well down from last season / his last three, and contracts the team may move
-  const ly = String(Z.season - 1);
-  const mins = t.players.map(p => { const F = FANT && FANT[p.pid]; if (!F) return null; const L = F.seasons && F.seasons[ly];
-    const last = L && L.g >= 10 && L.mpg != null ? L.mpg : null, m3 = F.mpg3 ?? null, prev = Math.max(last ?? 0, m3 ?? 0);
-    return prev >= 15 && p.mpg <= prev - 7 && p.mpg <= 0.7 * prev ? { p, last, m3, drop: prev - p.mpg } : null; }).filter(Boolean).sort((a, b) => b.drop - a.drop);
+  const mins = minutesDown(Z, t);
   const sal = (SAL ? SAL.players : []).filter(r => r.team === t.team && r.contract && (r.contract.tag === 'Toxic contract' || r.contract.expiring))
     .sort((a, b) => b.contract.salary - a.contract.salary);
   return `<h3>On their way out?</h3>
@@ -1130,6 +1142,109 @@ function teamRanks(Z, t) {   // every qualified player's top-20 ranks and positi
     <div class="table-wrap"><table class="team-ranks"><thead><tr><th>Player</th><th>Pos group</th><th class="num">Min / game</th><th>Top 20 ranks</th><th>Strengths (top ${POS_CUT}% of position)</th><th>Weaknesses (bottom ${POS_CUT}%)</th></tr></thead><tbody>
       ${ps.map(p => { const F = posFlags(p.pid); return `<tr><td class="nowrap"><a href="#splayer/${p.pid}">${esc(p.name)}</a> ${gradePill(p.grade)}</td><td>${F ? F.R.grp : '–'}</td><td class="num">${p.mpg}</td><td class="small">${rk(p)}</td><td class="small">${pf(p, 'good')}</td><td class="small">${pf(p, 'bad')}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
+// team rates from its players' box scores this season, ranked among the 30 teams (1 = best)
+const TEAM_CATS = [   // key, label, f(totals, games), higher better, player cat used for the fit
+  ['pts', 'Points', (b, g) => b.pts / g, true, 'pts'], ['orb', 'Off. rebounds', (b, g) => b.orb / g, true, 'orb'], ['drb', 'Def. rebounds', (b, g) => b.drb / g, true, 'drb'],
+  ['trb', 'Rebounds', (b, g) => b.trb / g, true, 'trb'], ['ast', 'Assists', (b, g) => b.ast / g, true, 'ast'], ['stl', 'Steals', (b, g) => b.stl / g, true, 'stl'],
+  ['blk', 'Blocks', (b, g) => b.blk / g, true, 'blk'], ['fg3', '3-pointers made', (b, g) => b.fg3 / g, true, 'fg3'], ['ft', 'Free throws made', (b, g) => b.ft / g, true, 'ftm'],
+  ['tov', 'Turnover rate', b => b.tov / (b.fga + 0.44 * b.fta + b.tov), false, 'tov'], ['pf', 'Personal fouls', (b, g) => b.pf / g, false, 'pf'],
+  ['fgp', 'Field goal %', b => b.fg / b.fga, true, 'fgp'], ['3pp', '3-point %', b => b.fg3 / b.fg3a, true, '3pp'], ['ftp', 'Free throw %', b => b.ft / b.fta, true, 'ftp'],
+  ['ts', 'True shooting %', b => b.pts / (2 * (b.fga + 0.44 * b.fta)), true, 'ts']];
+const TEAM_FMT = { tov: v => `${(100 * v).toFixed(1)}%`, fgp: v => `${(100 * v).toFixed(1)}%`, '3pp': v => `${(100 * v).toFixed(1)}%`, ftp: v => `${(100 * v).toFixed(1)}%`, ts: v => `${(100 * v).toFixed(1)}%` };
+let TEAMR = null;
+function teamRates(Z) {
+  if (TEAMR) return TEAMR;
+  const T = {};
+  Z.teams.filter(t => t.games).forEach(t => { const b = {};
+    t.players.forEach(p => { const x = PERJ && PERJ[p.pid] && PERJ[p.pid].box; if (!x) return; Object.entries(x).forEach(([k, v]) => { b[k] = (b[k] || 0) + v; }); });
+    T[t.team] = Object.fromEntries(TEAM_CATS.map(([k, , f]) => [k, { v: f(b, t.games) }])); });
+  TEAM_CATS.forEach(([k, , , hi]) => { const L = Object.entries(T).sort((a, c) => hi ? c[1][k].v - a[1][k].v : a[1][k].v - c[1][k].v);
+    L.forEach(([tm], i) => { T[tm][k].rank = i + 1; T[tm][k].of = L.length; }); });
+  return (TEAMR = T);
+}
+function minutesDown(Z, t) { Z._md = Z._md || {}; return Z._md[t.team] || (Z._md[t.team] = minutesDown0(Z, t)); }
+function minutesDown0(Z, t) {   // minutes well down from last season / his last three
+  const ly = String(Z.season - 1);
+  return t.players.map(p => { const F = FANT && FANT[p.pid]; if (!F) return null; const L = F.seasons && F.seasons[ly];
+    const last = L && L.g >= 10 && L.mpg != null ? L.mpg : null, m3 = F.mpg3 ?? null, prev = Math.max(last ?? 0, m3 ?? 0);
+    return prev >= 15 && p.mpg <= prev - 7 && p.mpg <= 0.7 * prev ? { p, last, m3, drop: prev - p.mpg } : null; }).filter(Boolean).sort((a, b) => b.drop - a.drop);
+}
+function fitCandidates(Z, t) {   // cached: {T, good, bad, C (top 12 attainable fits)}
+  Z._fit = Z._fit || {};
+  if (Z._fit[t.team]) return Z._fit[t.team];
+  const T = teamRates(Z)[t.team]; if (!T) return null;
+  const good = TEAM_CATS.filter(c => T[c[0]].rank <= 10).sort((a, b) => T[a[0]].rank - T[b[0]].rank);
+  const bad = TEAM_CATS.filter(c => T[c[0]].rank > T[c[0]].of - 10).sort((a, b) => T[b[0]].rank - T[a[0]].rank);
+  // who could patch the weaknesses: attainable players on other teams
+  const ly = String(Z.season - 1), src = {};
+  const tag = (pid, k) => { (src[pid] = src[pid] || new Set()).add(k); };
+  (SAL ? SAL.players : []).forEach(r => { if (r.team === t.team || !r.contract) return;
+    if (r.contract.expiring) tag(r.pid, 'Expiring contract / trade chip'); else if (r.contract.free_agent) tag(r.pid, 'Prospective free agent'); });
+  Z.teams.filter(o => o.team !== t.team).forEach(o => minutesDown(Z, o).forEach(x => tag(x.p.pid, 'Minutes well down')));
+  [true, false].forEach(up => usgMovers(Z, up).forEach(x => { const v = usgVerdict(x.p.grade, up); if (v.cls !== 'bad' || x.p.team === t.team) return;
+    const F = FANT && FANT[x.p.pid], prev = F && F.seasons && F.seasons[ly] && F.seasons[ly].team;
+    if (prev && prev !== x.p.team) return;                     // only players who didn't just join their team
+    tag(x.p.pid, v.tag); }));
+  const who = {}; Z.teams.forEach(o => o.players.forEach(p => { who[p.pid] = p; }));
+  const W = bad.map(c => c[4]);
+  const C = Object.entries(src).map(([pid, tags]) => { const p = who[pid]; if (!p || !W.length) return null;
+    const ps = W.map(k => [k, posPct(pid, k)]).filter(x => x[1] != null); if (ps.length < Math.ceil(W.length / 2)) return null;
+    const match = ps.reduce((a, x) => a + x[1], 0) / W.length;   // missing categories count as 0
+    const helps = ps.filter(x => x[1] >= 75).map(x => TEAM_CATS.find(c => c[4] === x[0])[1]);
+    const sal = SALBY[pid] && SALBY[pid].contract;
+    return { p, tags: [...tags], match, helps, grp: PERJ[pid].grp, sal }; }).filter(Boolean).sort((a, b) => b.match - a.match).slice(0, 12);
+  return (Z._fit[t.team] = { T, good, bad, C });
+}
+function teamFit(Z, t) {
+  const F = fitCandidates(Z, t); if (!F) return '';
+  const { T, good, bad, C } = F, fmt = (k, v) => (TEAM_FMT[k] || (x => x.toFixed(1)))(v);
+  const li = (L, cls) => L.length ? L.map(c => `<span class="stat-rank"><span class="pill ${cls}">${ordinal(T[c[0]].rank)}</span> ${c[1]} <span class="muted small">${fmt(c[0], T[c[0]].v)}</span></span>`).join(' · ') : '<span class="muted">none</span>';
+  const pc = m => m >= 75 ? 'sv-elite' : m >= 60 ? 'sv-good' : m >= 45 ? 'sv-mid' : '';
+  return `<h3>Team strengths and weaknesses <span class="muted small">· ranks among the 30 teams this season (top / bottom 10)</span></h3>
+    <p><b>Strengths:</b> ${li(good, 'sv-elite')}</p>
+    <p><b>Weaknesses:</b> ${li(bad, 'VERY_BAD')}</p>
+    <p class="small muted">Per game from the current roster's box scores (players who moved count for their current team); turnover rate = TOV ÷ (FGA + 0.44 × FTA + TOV); fewer turnovers and fouls rank higher. Usage isn't ranked for teams (a team always uses 100% of its plays).</p>
+    ${bad.length ? `<h4>Who could help with the weaknesses</h4>
+    <p class="lede">Attainable players on other teams: <a href="#salary">prospective free agents and expiring contracts / trade chips</a>, players whose minutes are well down, and players fading with less of the ball or biting off more than they can chew who didn't just join their team. <b>Match</b> = his average percentile against his own position group (guards, wings or bigs, qualified players this season) in the team's weak categories (${bad.map(c => c[1]).join(', ')}); a category he can't be measured in counts as 0. Players with under 100 minutes this season are left out.</p>
+    <div class="table-wrap"><table class="fit-table"><thead><tr><th>Player</th><th>Team</th><th>Why attainable</th><th>Pos group</th><th class="num">Min / game</th><th class="num">Salary</th><th class="num">Match</th><th>Top 25% of his position in</th></tr></thead><tbody>
+      ${C.map(x => `<tr><td class="nowrap"><a href="#splayer/${x.p.pid}">${esc(x.p.name)}</a> ${gradePill(x.p.grade)}</td><td><span class="team-tag">${x.p.team}</span></td><td class="small">${x.tags.map(esc).join('<br>')}</td><td>${x.grp}</td><td class="num">${x.p.mpg}</td><td class="num">${x.sal ? money(x.sal.salary) : '–'}</td><td class="num"><span class="pill ${pc(x.match)}">${Math.round(x.match)}%</span></td><td class="small">${x.helps.length ? x.helps.join(', ') : '<span class="muted">–</span>'}</td></tr>`).join('') || '<tr><td colspan="8" class="muted">No attainable players measured yet.</td></tr>'}</tbody></table></div>` : ''}`;
+}
+const salOf = x => { const c = SALBY[x.p.pid] && SALBY[x.p.pid].contract; return c ? c.salary : null; };
+const salTxt = x => { const v = salOf(x); return `<span class="muted">${v == null ? 'no contract on file' : money(v)}</span>`; };
+const salOk = (a, b) => Math.max(a, b) <= 1.25 * Math.min(a, b) + 250000;
+function salaryCheck(ours, theirs) {   // best salary-legal combination: one-for-one, or either side's group together
+  const opts = [];
+  ours.forEach(a => theirs.forEach(b => opts.push([[a], [b]])));
+  opts.push([ours, theirs]); ours.forEach(a => opts.push([[a], theirs])); theirs.forEach(b => opts.push([ours, [b]]));
+  let best = null;
+  opts.forEach(([A, B]) => { const sa = A.map(salOf), sb = B.map(salOf); if (sa.includes(null) || sb.includes(null)) return;
+    const x = sa.reduce((u, v) => u + v, 0), y = sb.reduce((u, v) => u + v, 0), gap = Math.max(x, y) / Math.max(1, Math.min(x, y));
+    if (!best || (salOk(x, y) && !best.ok) || (salOk(x, y) === best.ok && gap < best.gap)) best = { A, B, x, y, gap, ok: salOk(x, y) }; });
+  if (!best) return { ok: false, note: 'salary unknown for a player, so it can’t be checked' };
+  const who = L => L.map(z => esc(z.p.name)).join(' + ');
+  return best.ok ? { ok: true, note: `salaries work: ${who(best.A)} ${money(best.x)} for ${who(best.B)} ${money(best.y)}` }
+    : { ok: false, note: `implausible on salary: the closest is ${who(best.A)} ${money(best.x)} for ${who(best.B)} ${money(best.y)} (${best.gap.toFixed(1)}× apart; needs within 125% + $250K)` };
+}
+function tradeInterest(Z, t) {   // which teams' fit lists include this team's players, and two-way matches
+  const mine = fitCandidates(Z, t); if (!mine) return '';
+  const wanted = {}, pairs = [];
+  Z.teams.filter(o => o.games && o.team !== t.team).forEach(o => { const F = fitCandidates(Z, o); if (!F) return;
+    const theirs = F.C.filter(x => x.p.team === t.team);
+    theirs.forEach(x => (wanted[x.p.pid] = wanted[x.p.pid] || { x, by: [] }).by.push({ team: o.team, match: x.match }));
+    const ours = mine.C.filter(x => x.p.team === o.team);
+    if (theirs.length && ours.length) pairs.push({ o, ours, theirs }); });
+  const W = Object.values(wanted).sort((a, b) => b.by.length - a.by.length || b.x.match - a.x.match);
+  const nm = x => `<a href="#splayer/${x.p.pid}">${esc(x.p.name)}</a>`;
+  return `<h4>Interest in ${esc(t.team_name)} players</h4>
+    ${W.length ? `<p class="small muted">Players of this team on other teams' "who could help" lists (match % for that team).</p>
+    <ul class="small">${W.map(w => `<li>${nm(w.x)} <span class="muted">(${esc(w.x.tags.join(', '))})</span>: ${w.by.sort((a, b) => b.match - a.match).map(b => `<a href="#season/${b.team}"><span class="team-tag">${b.team}</span></a> ${Math.round(b.match)}%`).join(' · ')}</li>`).join('')}</ul>` : '<p class="muted small">None of this team\'s players are on another team\'s list.</p>'}
+    <h4>Possible trades</h4>
+    ${pairs.length ? `<p class="small muted">Both teams have a player the other needs: each side's player is on the other's "who could help" list.</p>
+    <ul class="small">${pairs.map(q => { const v = salaryCheck(q.ours, q.theirs);
+      return `<li class="${v.ok ? '' : 'trade-no'}"><span class="trade-txt"><a href="#season/${q.o.team}"><span class="team-tag">${q.o.team}</span> ${esc(q.o.team_name)}</a>: ${q.ours.map(x => `${nm(x)} ${salTxt(x)} (${Math.round(x.match)}% fit here)`).join(', ')} ↔ ${q.theirs.map(x => `${nm(x)} ${salTxt(x)} (${Math.round(x.match)}% fit there)`).join(', ')}</span>
+        <span class="${v.ok ? 'muted' : 'trade-why'}"> · ${v.note}</span></li>`; }).join('')}</ul>
+    <p class="small muted">Salary check (the CBA's matching rule, simplified): a trade works when the bigger side's salary is within 125% of the smaller side's plus $250K, trying each one-for-one pairing and each side's players together. Struck-through matches can't work on salary as listed.</p>` : '<p class="muted small">No two-way matches right now.</p>'}`;
+}
 function moverSection(Z, team) {
   const M = teamMovers(Z, team);
   return `<h3>Usage movers <span class="muted small">· in the league's top 50 usage gains or drops against his last three seasons (<a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a>)</span></h3>
@@ -1137,7 +1252,8 @@ function moverSection(Z, team) {
     ${M.up_mid.length || M.down_mid.length ? `<p class="small"><b>In between</b> (usage up at B− or C+, usage down at C+): ${moverLi([...M.up_mid, ...M.down_mid])}</p>` : ''}
     <p class="small muted">Players with 40%+ of the team's games and 15+ min/game. Change = usage now minus his games-weighted average over the last three seasons; the letter is his season grade.</p>`;
 }
-function usgMovers(Z, up) {   // this season's usage vs his 3-season average, for players with real roles so far
+function usgMovers(Z, up) { Z._um = Z._um || {}; return Z._um[up] || (Z._um[up] = usgMovers0(Z, up)); }
+function usgMovers0(Z, up) {   // this season's usage vs his 3-season average, for players with real roles so far
   const tg = Object.fromEntries(Z.teams.map(t => [t.team, t.games || 0]));
   return Z.teams.flatMap(t => t.players).map(p => { const F = FANT && FANT[p.pid]; const c = F && F.cur;
     if (!c || c.usg == null || F.usg3 == null || p.games < Math.max(1, Math.ceil(0.4 * (tg[p.team] || 0))) || p.mpg < 15) return null;
