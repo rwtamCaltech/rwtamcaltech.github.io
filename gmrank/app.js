@@ -785,7 +785,8 @@ function pageRows(table, n) {   // show n body rows at a time, with ← → unde
   const nav = document.createElement('div'); nav.className = 'pager';
   table.closest('.table-wrap').after(nav);
   let pg = 0; const pages = Math.ceil(rows.length / n);
-  const show = () => { rows.forEach((r, i) => { r.hidden = Math.floor(i / n) !== pg; });
+  const show = () => { table.querySelectorAll('tr.row-exp').forEach(r => { r.previousElementSibling && r.previousElementSibling.classList.remove('open'); r.remove(); });
+    rows.forEach((r, i) => { r.hidden = Math.floor(i / n) !== pg; });
     nav.innerHTML = `<button type="button" data-d="-1" ${pg ? '' : 'disabled'} aria-label="Previous ${n}">←</button> <span class="small">${pg * n + 1}–${Math.min(rows.length, pg * n + n)} of ${rows.length}</span> <button type="button" data-d="1" ${pg < pages - 1 ? '' : 'disabled'} aria-label="Next ${n}">→</button>`; };
   nav.addEventListener('click', e => { const b = e.target.closest('button'); if (!b || b.disabled) return; pg += +b.dataset.d; show(); });
   show();
@@ -1667,6 +1668,15 @@ function styTrend(p, key, label, X) {   // one small multiple: 0-100 within posi
 }
 // his place in a five-man unit, 1 (leads it) to 5 (has to be hidden)
 const roleLine = (r, side) => !r ? '' : `<div class="role-line"><b title="1 = leads a five-man unit on this end, 5 = has to be hidden">${r.n.toFixed(1)}</b><span class="small"> / 5 in a lineup · ${esc(r.word)}${r.hide ? ` <span class="pill VERY_BAD">hide on ${side.toLowerCase()}</span>` : ''}</span>${r.notes.length ? `<div class="small muted">${esc(r.notes.join('; '))}</div>` : ''}</div>`;
+let PERJ = null;   // this season's PER / usage / box-score totals by player (data/season/per.json)
+async function perData() { if (!PERJ) { try { PERJ = (await getJSON('data/season/per.json')).players || {}; } catch (e) { PERJ = {}; } } return PERJ; }
+function boxAvg(pid) {   // his per-game box score this season, in an even grid
+  const b = PERJ && pid && PERJ[pid] && PERJ[pid].box; if (!b || !b.g) return '';
+  const pg = k => (b[k] / b.g).toFixed(1), pc = (m, a) => b[a] ? `${(100 * b[m] / b[a]).toFixed(1)}%` : '–', ma = (m, a) => `${pg(m)}-${pg(a)}`;
+  const C = [['MPG', pg('mp')], ['PPG', pg('pts')], ['ORPG', pg('orb')], ['DRPG', pg('drb')], ['RPG', pg('trb')], ['APG', pg('ast')], ['SPG', pg('stl')], ['BPG', pg('blk')],
+    ['TOV', pg('tov')], ['PF', pg('pf')], ['FG%', pc('fg', 'fga')], ['3P%', pc('fg3', 'fg3a')], ['FT%', pc('ft', 'fta')], ['FGM-FGA', ma('fg', 'fga')], ['3PM-3PA', ma('fg3', 'fg3a')], ['FTM-FTA', ma('ft', 'fta')]];
+  return `<div class="box-avg-wrap"><div class="small muted">${seasonLabel(X_CUR())} per game (${b.g} game${b.g === 1 ? '' : 's'})</div><div class="box-avg">${C.map(([k, v]) => `<div><span class="k">${k}</span><b>${v}</b></div>`).join('')}</div></div>`;
+}
 function impactBlock(m, pid) {   // PER this season (past seasons on click), fantasy value, washed-up / out-of-the-league flags
   if (!m) return '';
   const F = (FANT && pid && FANT[pid]) || null, fs = y => F && F.seasons[String(y)];
@@ -1689,6 +1699,7 @@ function impactBlock(m, pid) {   // PER this season (past seasons on click), fan
       ${c ? `<tr><td>${seasonLabel(c.season)} <span class="muted small">so far</span></td><td class="num strong">${c.per.toFixed(1)}</td><td class="num">–</td>${usgCell(fs(c.season), c)}<td class="num">${c.g}</td><td class="num">${c.mp}</td><td class="num">${fCell(c.season)}</td></tr>` : ''}
       ${[...m.seasons].reverse().map(x => `<tr><td>${seasonLabel(x.season)}</td><td class="num">${x.per == null ? '–' : x.per.toFixed(1)}</td><td class="num">${sgn(x.bpm, 1)}</td>${usgCell(fs(x.season), x)}<td class="num">${x.g ?? '–'}</td><td class="num">${x.mp == null ? '–' : Math.round(x.mp).toLocaleString()}</td><td class="num">${fCell(x.season)}</td></tr>`).join('')}</tbody></table></div>
       <p class="small muted">The 3-season average counts his last three seasons with 300+ minutes. PER from Basketball-Reference for past seasons; this season's is computed from the box scores so far (Hollinger's formula, pace-adjusted, league average 15). Fantasy value: Basketball Monster's 9-category per-game value and rank among all players; the past-seasons average is weighted by games (10+ games a season).</p></details>
+    ${boxAvg(pid)}
     ${flags.length ? `<p>${flags.join('<br>')}</p>` : ''}`;
 }
 function styleBlock(p, X, heading = true, prof = null) {
@@ -1783,7 +1794,7 @@ async function flagSlot(view, pid, sp = null) {
 }
 async function styleSlot(view, pid, prof = null) {   // the style block on player / prospect pages, before the draft section
   const got = await styleByPid(pid), slot = $('#sty-slot', view);
-  await fantasyData();
+  await fantasyData(); await perData();
   if (!got || !slot) return;
   slot.innerHTML = styleBlock(got.p, got.X, true, prof) + `<p class="small"><a href="#styles">All player styles →</a></p>`;
   bindStyTips(slot);
@@ -1865,16 +1876,112 @@ async function renderNations(arg) {
     const pv = $('#nat-prev'), nx = $('#nat-next');
     if (pv) pv.addEventListener('click', () => { f.page--; save(); drawPlayers(); });
     if (nx) nx.addEventListener('click', () => { f.page++; save(); drawPlayers(); });
+    const ub = $('#nat-usbirth');   // the US birthplace map, only while United States is picked
+    if (f.country !== 'United States') { ub.innerHTML = ''; delete ub.dataset.on; }
+    else if (!ub.dataset.on) { ub.dataset.on = '1'; drawUsBirth(ub, N).catch(e => { ub.innerHTML = `<p class="muted small">US map unavailable (${esc(e.message)}).</p>`; }); }
   };
   const unk = N.countries.find(c => c.country === 'Unknown');
   view.innerHTML = `<h2>Nationalities</h2>
     <p class="muted">Where every player on a ${seasonLabel(N.season)} roster was born (Basketball-Reference), and how good each country's players are by our Outlook projection: <b>impact</b> is his BPM/EPM blend over the last three seasons, <b>value</b> his projected VORP ((impact + 2) × projected minutes ÷ 3,936), and <b>high impact</b> = impact +${N.high} or better over 1,000+ projected minutes. Countries are listed by number of players; click a header to rank them by total value (depth and stars), value per player or high-impact players.${unk ? ` ${unk.players} birthplaces not known yet.` : ''}</p>
     <div class="table-wrap"><table><thead><tr><th>#</th><th>Country</th><th class="num sortable" data-nsort="players">Players</th><th class="num sortable" data-nsort="high">High impact</th><th class="num">Avg impact</th><th class="num sortable" data-nsort="per">Value / player</th><th class="num sortable" data-nsort="vorp">Total value</th><th class="hide-sm">Best player</th></tr></thead><tbody id="nat-countries"></tbody></table></div>
     <div class="toolbar" style="margin-top:16px"><label>Country <select id="nat-sel"><option value="">All countries</option>${known.map(c => `<option ${f.country === c.country ? 'selected' : ''}>${esc(c.country)}</option>`).join('')}${unk ? `<option ${f.country === 'Unknown' ? 'selected' : ''}>Unknown</option>` : ''}</select></label></div>
-    <div id="nat-players"></div>`;
+    <div id="nat-usbirth"></div>
+    <div id="nat-players"></div>
+    <div id="nat-uscollege"></div>`;
   $('#nat-sel').addEventListener('change', e => { f.country = e.target.value; f.page = 0; save(); drawPlayers(); });
   view.querySelectorAll('[data-nsort]').forEach(th => th.addEventListener('click', () => { f.sort = th.dataset.nsort; save(); draw(); }));
   draw(); drawPlayers();
+  const uc = $('#nat-uscollege');
+  drawUsCollege(uc, N).catch(e => { uc.innerHTML = `<p class="muted small">US college map unavailable (${esc(e.message)}).</p>`; });
+}
+
+/* ---------- Nationalities: US maps (birthplaces, colleges); vendored d3-geo + topojson-client + us-atlas ---------- */
+let US_LIBS = null;
+function usLibs() {
+  const load = src => new Promise((ok, bad) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => bad(new Error(src)); document.head.appendChild(s); });
+  return US_LIBS = US_LIBS || load('vendor/d3-array.min.js').then(() => load('vendor/d3-geo.min.js')).then(() => load('vendor/topojson-client.min.js')).then(() => getJSON('vendor/states-10m.json'));
+}
+const US_BINS = [1, 2, 4, 8, 16, 32];   // shade steps: 1, 2-3, 4-7, 8-15, 16-31, 32+
+const usBin = n => n ? US_BINS.filter(b => n >= b).length : 0;
+const usBinLabel = i => i === US_BINS.length ? `${US_BINS[i - 1]}+` : US_BINS[i] - US_BINS[i - 1] === 1 ? `${US_BINS[i - 1]}` : `${US_BINS[i - 1]}–${US_BINS[i] - 1}`;
+const usWho = (ps, k = 5) => ps.slice(0, k).map((x, i) => `${i + 1}. ${esc(x.name)} <span class="muted">${x.team}</span>`).join('<br>') + (ps.length > k ? `<br><span class="muted">+${ps.length - k} more</span>` : '');
+// one US map: states shaded by distinct players, pins sized by players; stats: abbr -> [players best first], pins: [{lat, lon, title, players, tip}]
+async function usMap(el, { stats, pins, states, pinName, what }) {
+  const topo = await usLibs();
+  const fc = topojson.feature(topo, topo.objects.states);
+  const proj = d3.geoAlbersUsa().fitSize([960, 600], fc), path = d3.geoPath(proj);
+  const abbr = Object.fromEntries(Object.entries(states).map(([a, n]) => [n, a]));
+  const tips = [];
+  const tipOf = h => tips.push(h) - 1;
+  const shapes = fc.features.map(f => { const a = abbr[f.properties.name]; const d = path(f); if (!a || !d) return '';
+    const ps = stats[a] || [];
+    return `<path class="usq${usBin(ps.length)}" data-st="${a}" data-t="${tipOf(`<b>${esc(states[a])}</b> · ${ps.length} player${ps.length === 1 ? '' : 's'} ${what}${ps.length ? '<br>' + usWho(ps) : ''}`)}" d="${d}"/>`; }).join('');
+  const dots = pins.map(p => ({ p, xy: proj([p.lon, p.lat]) })).filter(o => o.xy).sort((a, b) => b.p.players.length - a.p.players.length)
+    .map(({ p, xy }) => `<circle class="uspin" cx="${xy[0].toFixed(1)}" cy="${xy[1].toFixed(1)}" r="${(3 + 2.2 * Math.sqrt(p.players.length - 1)).toFixed(1)}" data-t="${tipOf(p.tip)}"/>`).join('');
+  el.innerHTML = `<svg class="usmap" viewBox="0 0 960 600" role="img" aria-label="US map of players ${esc(what)} by state">${shapes}${dots}</svg>
+    <div class="uslegend small"><span class="muted">Players per state</span> <span><i class="usq0"></i>0</span>${US_BINS.map((_, i) => `<span><i class="usq${i + 1}"></i>${usBinLabel(i + 1)}</span>`).join('')}
+      <span><svg width="14" height="14"><circle class="uspin" cx="7" cy="7" r="5"/></svg>${pinName} (bigger = more players)</span></div>`;
+  let tip = $('#sty-tip');
+  if (!tip) { tip = document.createElement('div'); tip.id = 'sty-tip'; tip.hidden = true; document.body.appendChild(tip); }
+  const svg = el.querySelector('svg');
+  svg.addEventListener('pointermove', e => { const t = e.target.closest('[data-t]'); if (!t) { tip.hidden = true; return; }
+    tip.innerHTML = tips[+t.dataset.t]; tip.classList.add('ustip'); tip.hidden = false;
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    tip.style.left = Math.max(4, Math.min(innerWidth - w - 8, e.clientX + 14)) + scrollX + 'px';
+    tip.style.top = (e.clientY + 14 + h > innerHeight ? e.clientY - h - 10 : e.clientY + 14) + scrollY + 'px'; });
+  svg.addEventListener('pointerleave', () => { tip.hidden = true; tip.classList.remove('ustip'); });
+  return svg;
+}
+// a "states, most to least players" table; hovering a row outlines the state on the map
+const US_LISTS = {};   // row key -> players (best first), for click-to-expand rows
+function usStateTable(stats, states, cap, pre = 's') {
+  const rows = Object.entries(stats).sort((a, b) => b[1].length - a[1].length || states[a[0]].localeCompare(states[b[0]]));
+  return `<div class="table-wrap"><table class="us-states"><caption class="small muted">${cap}</caption><thead><tr><th>#</th><th>State</th><th class="num">Players</th><th class="hide-sm">Best</th></tr></thead><tbody>
+    ${rows.map(([a, ps], i) => { US_LISTS[pre + a] = ps; return `<tr data-st="${a}" data-key="${pre}${a}" class="us-row"><td class="rank">${i + 1}</td><td>${esc(states[a])}</td><td class="num strong">${ps.length}</td><td class="hide-sm"><a href="#splayer/${ps[0].pid}">${esc(ps[0].name)}</a></td></tr>`; }).join('')}</tbody></table></div>`;
+}
+function usLinkRows(box, svg) {
+  box.querySelectorAll('tr[data-st]').forEach(tr => {
+    tr.addEventListener('mouseenter', () => svg.querySelectorAll(`path[data-st="${tr.dataset.st}"]`).forEach(p => p.classList.add('ushl')));
+    tr.addEventListener('mouseleave', () => svg.querySelectorAll('.ushl').forEach(p => p.classList.remove('ushl')));
+  });
+  box.querySelectorAll('tr.us-row').forEach(tr => tr.addEventListener('click', e => {   // click: list every player, best first
+    if (e.target.closest('a')) return;
+    const nx = tr.nextElementSibling;
+    if (nx && nx.classList.contains('row-exp')) { nx.remove(); tr.classList.remove('open'); return; }
+    const ps = US_LISTS[tr.dataset.key] || [], cols = tr.children.length;
+    const li = ps.map((x, i) => `<li><a href="#splayer/${x.pid}">${esc(x.name)}</a> <span class="team-tag">${x.team}</span> <span class="muted small">${x.vorp != null ? `VORP ${x.vorp.toFixed(2)}` : ''}${x.impact != null ? ` · impact ${sgn(x.impact, 1)}` : ''}${x.mpg != null ? ` · ${x.mpg} min/g` : ''}${x.born ? ` · ${esc(x.born.split(',')[0])}` : ''}</span></li>`).join('');
+    tr.insertAdjacentHTML('afterend', `<tr class="row-exp"><td colspan="${cols}"><div class="small muted">All ${ps.length}, best first by projected ${seasonLabel(X_CUR())} VORP (the tab's value measure); click the row again to close.</div><ol class="us-list">${li}</ol></td></tr>`);
+    tr.classList.add('open');
+  }));
+  box.querySelectorAll('table').forEach(t => pageRows(t, 20));
+}
+async function drawUsBirth(el, N) {
+  const ps = N.players.filter(x => x.born_state), stats = {}, cities = {};
+  ps.forEach(x => { (stats[x.born_state] = stats[x.born_state] || []).push(x);
+    if (x.born_lat != null) { const k = `${x.born_lat},${x.born_lon}`; (cities[k] = cities[k] || { lat: x.born_lat, lon: x.born_lon, title: `${x.born.split(',')[0]}, ${x.born_state}`, players: [] }).players.push(x); } });
+  const pins = Object.values(cities).map(c => Object.assign(c, { tip: `<b>${esc(c.title)}</b> · ${c.players.length} born here<br>${c.players.map(x => `${esc(x.name)} <span class="muted">${x.team}</span>`).join('<br>')}` }));
+  el.innerHTML = `<h3>Where in the US <span class="muted small">· ${ps.length} US-born players by birth state; ${Object.keys(cities).length} birth cities</span></h3>
+    <div class="us-grid"><div class="us-map"></div><div class="us-side">${usStateTable(stats, N.states, 'Birth states, most to least players')}</div></div>`;
+  const svg = await usMap(el.querySelector('.us-map'), { stats, pins, states: N.states, pinName: 'birth city', what: 'born there' });
+  usLinkRows(el, svg);
+}
+async function drawUsCollege(el, N) {
+  const C = N.colleges || {}, stats = {}, schools = {};
+  const ps = N.players.filter(x => x.college && x.college.kind === 'college');
+  let nonUS = 0;
+  ps.forEach(x => { const names = x.college.name.split(' / ').filter(n => C[n]); if (!names.length) { nonUS++; return; }
+    names.forEach(n => (schools[n] = schools[n] || Object.assign({ short: n, players: [] }, C[n])).players.push(x));
+    [...new Set(names.map(n => C[n].state))].forEach(s => (stats[s] = stats[s] || []).push(x)); });
+  const sc = Object.values(schools).sort((a, b) => b.players.length - a.players.length || a.short.localeCompare(b.short));
+  const pins = sc.map(s => ({ lat: s.lat, lon: s.lon, players: s.players, tip: `<b>${esc(s.short)}</b> <span class="muted">${esc(s.full)}, ${esc(s.city)}, ${s.state}</span><br>${s.players.length} player${s.players.length === 1 ? '' : 's'}<br>${usWho(s.players)}` }));
+  const n = ps.length - nonUS, other = N.players.filter(x => !x.college || x.college.kind !== 'college').length;
+  el.innerHTML = `<h3>US colleges <span class="muted small">· ${n} current players who played college basketball in the US, international-born ones included</span></h3>
+    <p class="small muted">A player who transferred counts at every college he played for (and once per state). Colleges are matched to the NCES IPEDS directory. Not on the map: ${other} players with no US college (international pros, G League Ignite, Overtime Elite, prep)${nonUS ? ` and ${nonUS} whose college is outside the US` : ''}.</p>
+    <div class="us-grid"><div class="us-map"></div><div class="us-side">${usStateTable(stats, N.states, 'College states, most to least players', 'c')}</div></div>
+    <div class="table-wrap" style="margin-top:12px"><table class="us-colleges"><caption class="small muted">Colleges, most to least players</caption><thead><tr><th>#</th><th>College</th><th>State</th><th class="num">Players</th><th class="hide-sm">Best</th></tr></thead><tbody>
+    ${sc.map((s, i) => { US_LISTS['k' + s.short] = s.players; return `<tr data-st="${s.state}" data-key="k${esc(s.short)}" class="us-row"><td class="rank">${i + 1}</td><td title="${esc(s.full)}, ${esc(s.city)}">${esc(s.short)}</td><td>${s.state}</td><td class="num strong">${s.players.length}</td><td class="hide-sm"><a href="#splayer/${s.players[0].pid}">${esc(s.players[0].name)}</a></td></tr>`; }).join('')}</tbody></table></div>`;
+  const svg = await usMap(el.querySelector('.us-map'), { stats, pins, states: N.states, pinName: 'college', what: 'went to college there' });
+  usLinkRows(el, svg);
 }
 
 /* ---------- router ---------- */
