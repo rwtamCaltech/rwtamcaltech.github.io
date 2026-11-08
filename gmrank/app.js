@@ -823,6 +823,33 @@ function statTable(Z, k) {
   return `<div class="table-wrap"><table><thead><tr><th>#</th><th>Player</th><th>Team</th><th class="num">Games</th><th class="num">Min / game</th>${pct ? '<th class="num">Attempts / game</th>' : ''}<th class="num">${esc(c.label || k)}</th></tr></thead><tbody>
     ${L.map((x, i) => `<tr class="link" data-href="#splayer/${x.pid}"><td class="rank">${i + 1}</td><td><a href="#splayer/${x.pid}">${esc(x.name)}</a></td><td><span class="team-tag">${x.team}</span></td><td class="num">${x.g}</td><td class="num">${x.mpg}</td>${pct ? `<td class="num">${x.att}</td>` : ''}<td class="num strong">${statFmt(k, c.kind, x.val)}</td></tr>`).join('')}</tbody></table></div>`;
 }
+// Grade / Off / Def against great and good opponents (that night's opponent strength: the spread's forecast of who played)
+const TIER_LAB = { great: 'Great opponents', good: 'Good opponents', rest: 'Everyone else' };
+function tierTxt(Z) { const T = Z && Z.tiers; if (!T || T.great == null) return '';
+  return `Opponent strength is that night's forecast for the players the opponent actually used (past seasons blended with this season's form, plus team form; points per 100 vs an average team), ranked over every team-game this season: <b>great</b> = top ${Math.round(100 * T.great_share)}% (${sgn(T.great, 1)}+), <b>good</b> = the next ${Math.round(100 * T.good_share)}% (${sgn(T.good, 1)}+). Minutes-weighted, lettered on the season curve. <b>Worse vs great teams</b> = ${T.min_g}+ graded games in both groups and a Grade score ${T.drop.toFixed(1)}+ (half an SD of season scores) below his score against everyone else.`; }
+function tierBlock(p) {
+  const T = p.tiers, Z = S._season; if (!T || !Z || !Z.tiers) return '';
+  const cell = (o, k, gk) => o ? `${gradePill(o[gk])} <span class="muted small">${sgn(o[k], 1)}</span>` : '–';
+  const rows = ['great', 'good', 'rest'].filter(k => T[k]).map(k => { const o = T[k], few = o.g < Z.tiers.min_g;
+    return `<tr class="${few ? 'muted' : ''}"><td>${TIER_LAB[k]}${few ? ' <span class="small">(few games)</span>' : ''}</td><td class="num">${o.g}</td><td class="num">${o.mpg}</td><td>${cell(o, 'score', 'grade')}</td><td>${cell(o, 'off_score', 'off_grade')}</td><td>${cell(o, 'def_score', 'def_grade')}</td><td class="small">${o.opps.map(t => `<span class="team-tag">${t}</span>`).join(' ')}</td></tr>`; }).join('');
+  const note = T.worse ? `<p class="tier-worse"><span class="pill VERY_BAD">Worse vs great teams</span> His Grade score is ${sgn(T.gap, 1)} against great opponents compared with everyone else.</p>`
+    : T.better ? `<p><span class="pill sv-elite">Better vs great teams</span> His Grade score is ${sgn(T.gap, 1)} against great opponents compared with everyone else.</p>`
+    : T.gap != null ? `<p class="small muted">No big split: ${sgn(T.gap, 1)} against great opponents compared with everyone else.</p>` : `<p class="small muted">Not enough games against great opponents yet to judge a split.</p>`;
+  return `<h3>By opponent strength</h3>${note}
+    <div class="table-wrap"><table class="tier-table"><thead><tr><th>Opponents</th><th class="num">Games</th><th class="num">Min / game</th><th>Grade</th><th>Off</th><th>Def</th><th>Teams</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="small muted">${tierTxt(Z)}</p>`;
+}
+function tierSection(Z) {   // Teams tab: who plays worse / better against great teams
+  if (!Z.tiers || Z.tiers.great == null) return '';
+  const M = Z.stat_meta, tg = Object.fromEntries(Z.teams.map(t => [t.team, t.games || 0]));
+  const Q = Z.teams.flatMap(t => t.players).filter(p => p.tiers && p.tiers.gap != null && (!M || (p.games >= Math.ceil(M.games * (tg[p.team] || 0)) && p.mpg >= M.mpg)));
+  const W = Q.filter(p => p.tiers.worse).sort((a, b) => a.tiers.gap - b.tiers.gap), B = Q.filter(p => p.tiers.better).sort((a, b) => b.tiers.gap - a.tiers.gap);
+  const li = L => L.length ? L.slice(0, 20).map(p => `<a href="#splayer/${p.pid}">${esc(p.name)}</a> <span class="team-tag">${p.team}</span> ${gradePill(p.tiers.great.grade)} vs great, ${gradePill(p.tiers.rest.grade)} otherwise <span class="muted small">(${sgn(p.tiers.gap, 1)}, ${p.tiers.great.g} g)</span>`).join(' · ') : '<span class="muted">none yet</span>';
+  return `<h3>Against great teams</h3>
+    <p><span class="pill VERY_BAD">Worse vs great teams</span> (${W.length}): ${li(W)}</p>
+    <p><span class="pill sv-elite">Better vs great teams</span> (${B.length}): ${li(B)}</p>
+    <p class="small muted">Qualified players (${M ? `${Math.round(100 * M.games)}%+ of team games, ${M.mpg}+ min/game` : 'regular rotation'}), biggest gaps first, up to 20. ${tierTxt(Z)} Early in the season these rest on a handful of games.</p>`;
+}
 function statSection(Z) {
   if (!Z.stat_leaders || !Z.stat_meta) return '';
   ensureExtra(Z);
@@ -940,11 +967,11 @@ function gamesTable(games, team) {
   let run = 0;
   const tally = {};
   if (team) [...games].reverse().forEach(g => { run += (g.home === team ? 1 : -1) * g.diff; tally[g.id] = run; });
-  return `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Game</th><th class="num" title="Expected home margin (points), from the players who played and their minutes, plus home court">Expected (home)</th><th class="num">Actual (home)</th>
-    <th class="num" title="Actual - expected margin; + = ${team ? 'this team' : 'home team'} beat its expectation">${team ? 'Over / under' : 'Home over / under'}</th>${team ? '<th class="num">Coach tally</th>' : ''}<th class="num hide-sm" title="Injury score: what absent rotation players would have added over replacement (points per 100)">Injuries (away / home)</th></tr></thead><tbody>
+  return `<div class="table-wrap"><table><thead><tr><th>Date</th><th>Game</th><th class="num" title="Expected home margin (points), from the players who played and their minutes, plus home court">Expected (home)</th><th class="num hide-sm" title="Forecast spread (home): season form blended in from 3 games, plus team form">Spread (home)</th><th class="num">Actual (home)</th>
+    <th class="num" title="Actual margin - spread; + = ${team ? 'this team' : 'home team'} beat the spread">${team ? 'Over / under' : 'Home over / under'}</th>${team ? '<th class="num">Coach tally</th>' : ''}<th class="num hide-sm" title="Injury score: what absent rotation players would have added over replacement (points per 100)">Injuries (away / home)</th></tr></thead><tbody>
     ${games.map(g => { const d = team && g.away === team ? -g.diff : g.diff; return `<tr class="link" data-href="#game/${g.id}">
       <td class="nowrap">${fmtDate(g.date)}</td><td class="nowrap"><a href="#game/${g.id}">${esc(gameLabel(g))}</a></td>
-      <td class="num">${sgn(g.exp_margin, 1)}</td><td class="num">${sgn(g.margin, 0)}</td>
+      <td class="num">${sgn(g.exp_margin, 1)}</td><td class="num hide-sm">${g.spread != null ? sgn(g.spread, 1) : '–'}</td><td class="num">${sgn(g.margin, 0)}</td>
       <td class="num strong ${zCls(d / 4)}">${sgn(d, 1)}</td>${team ? `<td class="num">${sgn(tally[g.id], 1)}</td>` : ''}
       <td class="num hide-sm">${g.inj_away.toFixed(1)} / ${g.inj_home.toFixed(1)}</td></tr>`; }).join('')}</tbody></table></div>`;
 }
@@ -971,11 +998,11 @@ async function renderSeason(team) {
   if (!STY_BY) { try { STY_BY = Object.fromEntries((await styIndex()).players.filter(x => x.pid).map(x => [x.pid, x])); } catch (e) { STY_BY = {}; } }
   let jump = null;   // #season/stat:fg3pg or #season/top:def_bot opens that tab and scrolls to it
   if (team && team.includes(':')) { const [kind, key, pid] = team.split(':'); jump = { kind, key: decodeURIComponent(key), pid }; team = null; }
-  const lede = `<p class="lede">Every ${seasonLabel(Z.season)} game, newest first, updated nightly (2 AM Pacific). Each team's <b>expectation</b> uses the players who actually played and their minutes: each player's expected impact is his Outlook projection (last three seasons, recency- and games-weighted; rookies from draft slot and college stats), blended with his box-score impact this season once he has ${Z.min_games} games (games ÷ (games + ${Z.season_k})). Expected margin = home − away + ${Z.home_edge} for home court. <b>Coach score</b> adds up actual − expected margins for his team (points), so + means the team beat what its players should have produced. The <b>injury score</b> adds up what absent rotation players would have added over a replacement-level fill-in. Click a game for its box score and player grades.</p>`;
+  const lede = `<p class="lede">Every ${seasonLabel(Z.season)} game, newest first, updated nightly (2 AM Pacific). Each team's <b>expectation</b> uses the players who actually played and their minutes: each player's expected impact is his Outlook projection (last three seasons, recency- and games-weighted; rookies from draft slot and college stats), blended with his box-score impact this season once he has ${Z.min_games} games (games ÷ (games + ${Z.season_k})). Expected margin = home − away + ${Z.home_edge} for home court (the <b>roster expectation</b>, which player grades use). The <b>spread</b> counts season form from a player's ${Z.spread_min_g || 3}rd game (games ÷ (games + ${Z.spread_k || 25})) and adds each team's average margin over that forecast so far × games ÷ (games + ${Z.form_k || 15}). <b>Coach score</b> adds up actual margin − spread for his team over its games (points), so + means the team beat the spread. The <b>injury score</b> adds up what absent rotation players would have added over a replacement-level fill-in. Click a game for its box score and player grades.</p>`;
   if (!team) {
     view.innerHTML = `<h2>${seasonLabel(Z.season)} Teams</h2>${lede}
       <div class="toolbar">${teamSelect(Z)} <span class="small muted">Updated ${esc(Z.updated.replace('T', ' '))} · ${Z.games.length} games</span></div>
-      <h3>Teams by coach score (over / under expectation)</h3>
+      <h3>Teams by coach score (over / under the spread)</h3>
       <p class="small muted">Click a column to sort. Fantasy: <a href="https://basketballmonster.com/playerrankings.aspx">Basketball Monster</a> 9-cat ranks; round.pick in a 12-team league (2.08 = round 2, pick 8).</p>
       <div class="table-wrap"><table class="season-teams"><thead><tr><th>#</th><th>Team</th><th>Coach</th><th class="num">Record</th><th class="num">Coach score</th><th class="num">Per game</th><th class="num">Injury score</th><th class="hide-sm">Top grade</th><th title="His best player by Basketball Monster rank this season (12-team round.pick), with BBM value and fantasy points per game">Top fantasy</th><th class="num" title="Players ranked in the top 5 rounds of a 12-team league (top 60)">Top 5 rds</th><th class="num" title="Players ranked in the top 10 rounds (top 120)">Top 10 rds</th><th class="num" title="Usage down top 50: grading B- or better">Thriving smaller</th><th class="num" title="Usage down top 50: grading C or worse">Fading</th><th class="num" title="Usage up top 50: grading B or better">Rising</th><th class="num" title="Usage up top 50: grading C or worse">Biting off more</th><th class="num" title="Usage mix: players at 20%+ usage - players at 15-20% (40%+ of the team's games, 15+ min/game); hover for names">Usage 20+ / 15–20</th></tr></thead><tbody>
       ${(() => {   // usage-mix color: percentile of (20%+ players + half the 15-20% players) across teams; more spread = greener
@@ -1011,6 +1038,7 @@ async function renderSeason(team) {
       <div class="table-wrap"><table class="movers-table"><thead><tr><th>Team</th>${MOVER_ROWS.map(([, c, tag]) => `<th><span class="pill ${c}">${tag}</span></th>`).join('')}</tr></thead><tbody>
         ${Z.teams.filter(t => t.games).map(t => [t, teamMovers(Z, t.team)]).filter(([, M]) => MOVER_ROWS.some(([k]) => M[k].length)).map(([t, M]) => `<tr><td class="name nowrap"><span class="team-tag">${t.team}</span><a href="#season/${t.team}">${esc(t.team_name)}</a></td>
           ${MOVER_ROWS.map(([k]) => `<td class="small">${M[k].length ? moverLi(M[k]).replace(/ · /g, '<br>') : '<span class="muted">–</span>'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>
+      ${tierSection(Z)}
       ${statSection(Z)}
       <h3>Games</h3><div id="games-league">${gamesTable(Z.games)}</div>`;
     bindStatSection(view, Z);
@@ -1340,9 +1368,10 @@ async function renderGame(id) {
   view.innerHTML = `<a class="back" href="#season">← Games</a>
     <div class="hero"><div class="who"><h2>${esc(gameLabel(g))}</h2><p>${fmtDate(g.date)}</p></div>
       <div class="stat-tiles">
-        <div class="tile"><div class="k">Expected</div><div class="v">${g.exp_margin >= 0 ? g.home : g.away} by ${Math.abs(g.exp_margin).toFixed(1)}</div></div>
+        ${g.spread != null ? `<div class="tile"><div class="k">Spread</div><div class="v">${g.spread >= 0 ? g.home : g.away} by ${Math.abs(g.spread).toFixed(1)}</div><div class="small muted" title="Forecast: players' season form counts from 3 games (games ÷ (games + 25)), plus each team's average margin over that forecast so far × games ÷ (games + 15). The over / under and the coach ledger compare the result with this.">team form ${g.away} ${sgn(g.form_away, 1)}, ${g.home} ${sgn(g.form_home, 1)}</div></div>` : ''}
+        <div class="tile"><div class="k">Roster expectation</div><div class="v">${g.exp_margin >= 0 ? g.home : g.away} by ${Math.abs(g.exp_margin).toFixed(1)}</div><div class="small muted">what player grades use${g.roster_diff != null ? ` · result ${g.roster_diff >= 0 ? g.home : g.away} ${sgn(Math.abs(g.roster_diff), 1)} vs it` : ''}</div></div>
         <div class="tile"><div class="k">Actual</div><div class="v">${g.margin >= 0 ? g.home : g.away} by ${Math.abs(g.margin)}</div></div>
-        <div class="tile"><div class="k">Over / under</div><div class="v">${g.diff >= 0 ? g.home : g.away} ${sgn(Math.abs(g.diff), 1)}</div><div class="small muted">added to ${esc(g.coach_home || g.home)} (${sgn(g.diff, 1)}) and ${esc(g.coach_away || g.away)} (${sgn(-g.diff, 1)})</div></div>
+        <div class="tile"><div class="k">Over / under${g.spread != null ? ' (vs spread)' : ''}</div><div class="v">${g.diff >= 0 ? g.home : g.away} ${sgn(Math.abs(g.diff), 1)}</div><div class="small muted">added to ${esc(g.coach_home || g.home)} (${sgn(g.diff, 1)}) and ${esc(g.coach_away || g.away)} (${sgn(-g.diff, 1)})</div></div>
       </div></div>
     <p class="lede">Grades (5+ minutes): 0.55 × his game impact (so a great box score earns an A whoever he is) + 0.30 × game impact vs his expectation + 0.15 × his +/− per 36 relative to his team's margin − 0.20 × how far his positional counterparts (same position group, similar minutes) beat their own expectations. A game impact of +12 or game score 28+ is at least an A−. <b>Off</b> grades purely offensive box stats (scoring, efficiency, free throws drawn, assists, offensive boards, turnovers) against his expected offense. <b>Def</b> grades defensive boards, steals, blocks, fouls and +/−, against his expected defense, and docks him when his positional counterparts scored better than expected on him (credits him when they did worse). Hover a grade for its parts.</p>
     ${side(g.away)}${side(g.home)}`;
@@ -1478,6 +1507,7 @@ async function renderSeasonPlayer(pid) {
         <div class="tile" title="${seasonTip(p, 'def_grade')}"><div class="k">Defense</div><div class="v">${gradePill(p.def_grade)}</div><div class="small muted">${p.def_score == null ? '' : `score ${sgn(p.def_score, 1)}${p.def_pct != null ? ` · ${ordn(p.def_pct)} pct` : ''}`}</div></div>
         <div class="tile" title="${p.prod_parts ? prodWhy(p.prod_parts, p.prod_score) + '&#10;' + tipEsc('Production is 30% of every game grade (see a game Grade for its parts).') : ''}"><div class="k">PER</div><div class="v">${p.per == null ? '–' : p.per.toFixed(1)}</div><div class="small muted">${p.per == null ? '' : `vs his ${p.prod_parts ? p.prod_parts.base : '–'} baseline`}${p.fp != null ? ` · ${p.fp} fantasy pts/g` : ''}</div></div>${projTile}</div></div>
     <div id="flag-slot"></div>
+    ${tierBlock(p)}
     ${statRanks(p)}
     <div class="table-wrap"><table><thead><tr><th>Date</th><th>Game</th><th class="num">Min</th><th class="num">Pts</th><th class="num">Reb</th><th class="num">Ast</th><th class="num">+/−</th><th class="num">Game impact</th><th class="num">Expected</th><th>Grade</th><th>Off</th><th>Def</th><th class="num">PER</th><th class="num hide-sm" title="DraftKings-style fantasy points">FP</th></tr></thead><tbody>
       ${[...p.log].reverse().map(x => `<tr class="link" data-href="#game/${x.id}"><td class="nowrap">${fmtDate(x.date)}</td><td class="nowrap"><a href="#game/${x.id}">${x.home ? 'vs' : '@'} ${x.opp}</a> <span class="muted small">${x.result} ${sgn(x.margin, 0)}</span></td>

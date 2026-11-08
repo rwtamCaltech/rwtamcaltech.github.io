@@ -344,3 +344,5 @@ li.trade-no .trade-txt { text-decoration: line-through; opacity: 0.6; }
 .fit-table tr.fit-costly td { background: rgba(220, 38, 38, 0.12); }
 .fit-table tr.fit-costly td:first-child { box-shadow: inset 3px 0 0 #dc2626; }
 .fit-costly-note b { color: #dc2626; }
+.tier-table td { vertical-align: top; }
+.tier-worse { margin: 0.3rem 0; }
