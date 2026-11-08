@@ -2084,6 +2084,32 @@ async function styleSlot(view, pid, prof = null) {   // the style block on playe
   slot.innerHTML = styleBlock(got.p, got.X, true, prof) + `<p class="small"><a href="#styles">All player styles →</a></p>`;
   bindStyTips(slot);
 }
+// ex-players of a team (default the Lakers) playing elsewhere this season, best season grade first
+const yrsTxt = L => { const r = []; L.forEach(y => { const z = r[r.length - 1]; if (z && y === z[1] + 1) z[1] = y; else r.push([y, y]); });
+  return r.map(([a, b]) => a === b ? seasonLabel(a) : `${seasonLabel(a)} to ${seasonLabel(b)}`).join(', '); };
+function exTeamTable(Z, team) {
+  if (!Z || !PERJ) return '<p class="muted">Season data not loaded.</p>';
+  const M = Z.stat_meta; ensureExtra(Z);
+  const lab = M ? Object.fromEntries(M.cats.map(c => [c.key, c])) : {}, XR = (Z._extra && Z._extra.ranks) || {}, top = {};
+  Object.entries(Z.stat_leaders || {}).forEach(([k, L]) => L.forEach((x, i) => (top[x.pid] = top[x.pid] || []).push({ cat: k, rank: i + 1, val: x.val })));
+  const ps = Z.teams.flatMap(t => t.players).filter(p => p.team !== team && PERJ[p.pid] && PERJ[p.pid].past && PERJ[p.pid].past[team])
+    .sort((a, b) => (b.score ?? -99) - (a.score ?? -99));
+  const rk = p => { const L = (top[p.pid] || []).filter(r => r.cat !== 'usg' && r.cat !== 'fval').concat((XR[p.pid] || []).filter(r => !r.bottom || GRADE_LAB[r.cat]));
+    const g = L.filter(r => GRADE_LAB[r.cat] && !r.bottom), b = L.filter(r => r.bottom), o = L.filter(r => !GRADE_LAB[r.cat]).sort((a, c) => a.rank - c.rank);
+    const one = r => GRADE_LAB[r.cat] ? `<a href="#season/top:${({ grade: 'score', off: 'off', def: 'def' })[r.cat]}${r.bottom && r.cat !== 'grade' ? '_bot' : ''}:${p.pid}"><span class="pill ${r.bottom ? 'VERY_BAD' : 'sv-good'}">${r.bottom ? `${ordinal(r.rank)} worst` : `#${r.rank}`}</span> ${GRADE_LAB[r.cat]}</a>`
+      : `<a href="#season/stat:${r.cat}:${p.pid}"><span class="pill ${r.rank <= 5 ? 'sv-elite' : r.rank <= 10 ? 'sv-good' : 'sv-mid'}">#${r.rank}</span> ${esc((lab[r.cat] || { label: r.cat }).label)}</a>`;
+    return [...g, ...o, ...b].map(one).join('<br>') || '<span class="muted">–</span>'; };
+  const pf = (p, which) => { const F = posFlags(p.pid); if (!F) return '<span class="muted">not qualified</span>'; const L = F[which];
+    return L.length ? L.map(([k, l, c]) => `${posPill(k, c, which === 'good' ? 'sv-elite' : 'VERY_BAD')} ${l.replace(/ \(.*\)$/, '')}`).join('<br>') : '<span class="muted">none</span>'; };
+  const g3 = (p, k, gk) => p[k] == null ? '<span class="muted">N/A</span>' : `${gradePill(p[gk])} <span class="muted small">${sgn(p[k], 1)}</span>`;
+  return `<div class="table-wrap"><table class="ex-team"><thead><tr><th>#</th><th>Player</th><th>Now</th><th>With ${team}</th><th class="num">Age</th><th>Pos group</th><th class="num">Games</th><th class="num">Min / game</th><th>Grade</th><th>Off</th><th>Def</th><th>Top 20 ranks</th><th>Strengths (top ${POS_CUT}% of position)</th><th>Weaknesses (bottom ${POS_CUT}%)</th></tr></thead><tbody>
+    ${ps.map((p, i) => { const q = PERJ[p.pid], F = posFlags(p.pid), age = ageFromBirth(p.pid);
+      return `<tr><td class="rank">${i + 1}</td><td class="nowrap"><a href="#splayer/${p.pid}">${esc(p.name)}</a></td><td><a href="#season/${p.team}"><span class="team-tag">${p.team}</span></a></td><td class="small">${yrsTxt(q.past[team])}</td>
+        <td class="num">${age ?? '–'}</td><td>${F ? F.R.grp : q.grp || '–'}</td><td class="num">${p.games}</td><td class="num">${p.mpg}</td>
+        <td class="nowrap">${g3(p, 'score', 'grade')}</td><td class="nowrap">${g3(p, 'off_score', 'off_grade')}</td><td class="nowrap">${g3(p, 'def_score', 'def_grade')}</td>
+        <td class="small">${rk(p)}</td><td class="small">${pf(p, 'good')}</td><td class="small">${pf(p, 'bad')}</td></tr>`; }).join('') || `<tr><td colspan="14" class="muted">No former ${team} players have played this season.</td></tr>`}</tbody></table></div>
+    <p class="small muted">Everyone who played for ${team} in an earlier season (Basketball-Reference, as far back as the database goes) and has played for another team this season. Season grades (minutes-weighted, on the curve; score beside each letter), best first. Top 20 ranks and position strengths / weaknesses use the same qualifying rules as the team pages (${M ? `${Math.round(100 * M.games)}%+ of team games, ${M.mpg}+ min/game` : 'regular rotation'}); "not qualified" means too few games or minutes so far.</p>`;
+}
 async function renderStyles(id) {
   const view = $('#view');
   const X = await styIndex();
@@ -2118,14 +2144,22 @@ async function renderStyles(id) {
     $('#sty-count').textContent = `${rows.length} players`;
     bindRowLinks(view);
   };
+  const ZS = await seasonData().catch(() => null);
+  if (ZS) { await fantasyData(); await perData(); await BIRTHS_P; }
+  let exT = (() => { try { return localStorage.getItem('gm-ex-team') || 'LAL'; } catch (e) { return 'LAL'; } })();
   view.innerHTML = `<h2>Player styles</h2>
     <p class="muted">How every NBA player scores and defends, from nba.com tracking (shot defense by distance, hustle, speed, dunks and rim attempts) as gathered by our nba_api scripts, ${seasonLabel(X.meta.seasons[0])} to ${seasonLabel(X.meta.latest)}. Each stat is 0–100 against his position that season; the style labels and defender types follow the PLAYERDEFENSEDROPDOWN sheet. Teams and the roster filter are ${cs}; the styles are ${X.meta.latest >= X.meta.current ? `${cs} (early in the season each player's is blended with his past seasons by games played)` : `from ${seasonLabel(X.meta.latest)} until ${cs} tracking is added`}. Open a player for his career trends.</p>
+    <p class="small"><a href="#styles" id="ex-jump">Former ${esc(exT)} players this season ↓</a></p>
     <div class="toolbar"><input id="sty-q" type="search" placeholder="Search players" value="${esc(f.q)}" aria-label="Search players">
       <select id="sty-team" aria-label="Team"><option value="">All teams</option>${teams.map(t => `<option ${f.team === t ? 'selected' : ''}>${t}</option>`).join('')}</select>
       <select id="sty-pos" aria-label="Position"><option value="">All positions</option>${['G', 'F', 'C'].map(t => `<option value="${t}" ${f.pos === t ? 'selected' : ''}>${{ G: 'Guards', F: 'Forwards', C: 'Centers' }[t]}</option>`).join('')}</select>
       <select id="sty-mode" aria-label="Rosters">${[['cur', `${cs} rosters`], ['last', `${seasonLabel(X.meta.latest)} teams`], ['all', 'All players since ' + seasonLabel(X.meta.seasons[0])]].map(([k, l]) => `<option value="${k}" ${f.mode === k ? 'selected' : ''}>${l}</option>`).join('')}</select> <span id="sty-count" class="muted small"></span></div>
     <div class="table-wrap"><table><thead><tr><th>Player</th><th>Team</th><th>Pos</th><th class="num">Seasons</th><th title="Offense grade vs the whole league (${X.meta.latest >= X.meta.current ? cs : seasonLabel(X.meta.latest)})">Offense</th><th title="Defense grade vs the whole league">Defense</th><th class="hide-sm">Offense style (${X.meta.latest >= X.meta.current ? cs : `last season, ${seasonLabel(X.meta.latest)}`})</th><th class="hide-sm">Defense style</th></tr></thead><tbody id="sty-body"></tbody></table></div>
-    <p class="small muted">Defender types (the sheet's name colors): ${Object.keys(STY_TYPES).map(k => `<span class="sty-type sty-${k}">${STY_TYPES[k]}</span>`).join(' ')}</p>`;
+    <p class="small muted">Defender types (the sheet's name colors): ${Object.keys(STY_TYPES).map(k => `<span class="sty-type sty-${k}">${STY_TYPES[k]}</span>`).join(' ')}</p>
+    <h3 id="ex-team-h">Former <select id="ex-team" aria-label="Former team">${(ZS ? ZS.teams.map(t => t.team).sort() : ['LAL']).map(t => `<option ${t === exT ? 'selected' : ''}>${t}</option>`).join('')}</select> players this season</h3>
+    <div id="ex-team-body">${exTeamTable(ZS, exT)}</div>`;
+  $('#ex-jump').addEventListener('click', e => { e.preventDefault(); $('#ex-team-h').scrollIntoView({ behavior: 'smooth' }); });
+  $('#ex-team').addEventListener('change', e => { exT = e.target.value; try { localStorage.setItem('gm-ex-team', exT); } catch (er) { /* private mode */ } $('#ex-team-body').innerHTML = exTeamTable(ZS, exT); });
   $('#sty-q').addEventListener('input', e => { f.q = e.target.value; draw(); });
   $('#sty-team').addEventListener('change', e => { f.team = e.target.value; save(); draw(); });
   $('#sty-pos').addEventListener('change', e => { f.pos = e.target.value; save(); draw(); });

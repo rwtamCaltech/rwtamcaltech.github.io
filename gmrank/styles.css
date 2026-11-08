@@ -346,3 +346,5 @@ li.trade-no .trade-txt { text-decoration: line-through; opacity: 0.6; }
 .fit-costly-note b { color: #dc2626; }
 .tier-table td { vertical-align: top; }
 .tier-worse { margin: 0.3rem 0; }
+.ex-team td { vertical-align: top; }
+#ex-team-h select { font: inherit; }
